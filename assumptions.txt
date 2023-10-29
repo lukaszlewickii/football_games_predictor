@@ -1,0 +1,22 @@
+Tytuł pracy: Wykorzystanie sztucznej inteligencji w piłce nożnej. Symulacja meczów piłkarskich.
+
+Źródła o ml/dl:
+
+Źródła piłkarskie:
+- The xG philosophy
+- Gegenpressing i Tiki-taka
+- AI for sports
+- Football Hackers. The Science and Art of a Data Re. Volumeution
+
+Datasets:
+- footystats.org - dane z 19 sezonów od 07/08 do 23/24
+- idea:
+    - zbiór treningowy - 15 sezonów
+    - finetuning - 1 sezon
+    - walidacja - 2 sezony
+    - zbiór testowy - 1 sezon (obecny)
+
+Assumptions:
+- wiedza teoretyczna na temat uczenia maszynowego, uczenia głębokiego, początkach sztucznej inteligencji w sporcie
+- symulacja meczów piłkarskich z dokładnym wynikiem i przewidywanymi statystykami meczowymi oraz wskaźnikami np. xG, xA
+- wnioski końcowe
