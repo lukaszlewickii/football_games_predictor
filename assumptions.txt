@@ -11,12 +11,15 @@ Tytuł pracy: Wykorzystanie sztucznej inteligencji w piłce nożnej. Symulacja m
 Datasets:
 - footystats.org - dane z 19 sezonów od 07/08 do 23/24
 - idea:
+    - podział zbioru w stosunku 80-10-10 lub 70-15-15
+    - przetestowanie różnych sieci neuronowych - RNN, LSTM, GRU, CNN, Attention NN?
     - zbiór treningowy - 15 sezonów
-    - finetuning - 1 sezon
+    - finetuning (ewentualnie) na meczach pucharowych pomiędzy ekipami tej samej ligi w pucharach krajowych/europejskich
     - walidacja - 2 sezony
-    - zbiór testowy - 1 sezon (obecny)
+    - zbiór testowy - 2 sezon (obecny)
 
 Assumptions:
 - wiedza teoretyczna na temat uczenia maszynowego, uczenia głębokiego, początkach sztucznej inteligencji w sporcie
+- przetestowanie 
 - symulacja meczów piłkarskich z dokładnym wynikiem i przewidywanymi statystykami meczowymi oraz wskaźnikami np. xG, xA
 - wnioski końcowe
