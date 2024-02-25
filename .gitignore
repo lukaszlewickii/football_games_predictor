@@ -1,16 +1,1 @@
-data/england-premier-league-league-2007-to-2008-stats.csv
-data/england-premier-league-matches-2007-to-2008-stats.csv
-data/england-premier-league-matches-2008-to-2009-stats.csv
-data/england-premier-league-matches-2009-to-2010-stats.csv
-data/england-premier-league-matches-2010-to-2011-stats.csv
-data/england-premier-league-matches-2011-to-2012-stats.csv
-data/england-premier-league-matches-2012-to-2013-stats.csv
-data/england-premier-league-matches-2013-to-2014-stats.csv
-data/england-premier-league-matches-2014-to-2015-stats.csv
-data/england-premier-league-matches-2015-to-2016-stats.csv
-data/england-premier-league-matches-2016-to-2017-stats.csv
-data/england-premier-league-matches-2017-to-2018-stats.csv
-data/england-premier-league-matches-2019-to-2020-stats.csv
-data/england-premier-league-matches-2020-to-2021-stats.csv
-data/england-premier-league-matches-2021-to-2022-stats.csv
-data/england-premier-league-matches-2022-to-2023-stats.csv
+data/*/*
