@@ -2,6 +2,7 @@ import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 
+#lstm for tests
 def model(input_shape):
     model = Sequential()
     model.add(LSTM(units=50, input_shape=input_shape, return_sequences=True))
