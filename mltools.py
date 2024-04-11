@@ -91,4 +91,160 @@ class VizData:
                 plt.ylim([0,1])
                 plt.show()
                 
-        # to finish
+    def get_missing_data(self):
+        print(f'{Fore.RED}{Style.BRIGHT}Missing values:{Style.RESET_ALL}')
+        
+        columns_with_empties = [col for col in self.data.columns if self.data[col].isna().sum() > 0]
+        df0 = self.data[columns_with_empties]
+        df0 = df0.isna().sum().to_frame()
+        df0.columns= ['n_missing']
+        df0['n_missing_percentage'] = round(df0['n_missing'] / self.data.shape[0] * 100, 2).astype(str)
+        df0['n_missing_percentage'] = df0['n_missing_percentage'] + '%'
+        
+        display(df0.style.set_properties(**{'background_color': '#000000', 'color': '#ff0000', 'font_weight': 'bold'}))
+        print('-------------------')
+        
+        #MSNO matrix
+        if self.data.shape[1] < 100:
+            if len(columns_with_empties) > 0:
+                print(f'{Fore.RED}{Style.BRIGHT}MSNO Matrix:{Style.RESET_ALL}')
+                print()
+                ax = msno.matrix(self.data, color=(0, 0.5, 0), figsize=(12,8))
+                plt.show()
+                print('-------------------')
+    
+    def plot_correlation(self):
+        print(f'{Fore.BLUE}{Style.BRIGHT}DataFrame Correlation:{Style.RESET_ALL}')
+        print()
+        
+        if self.data.columns.nunique() < 10:
+            sns.heatmap(self.data.corr(), annot=True, cmap='Spectral', linewidths=2, linecolor='#000000', fmt='.3f')
+            plt.show()
+        elif self.data.columns.nunique() < 15:
+            sns.heatmap(self.data.corr(), annot=True, cmap='Spectral', linewidths=2, linecolor='#000000', fmt='.2f')
+            plt.show()
+        elif self.data.columns.nunique() < 25:
+            sns.heatmap(self.data.corr(), annot=True, cmap='Spectral', linewidths=2, linecolor='#000000', fmt='.1f')
+            plt.show()
+        else:
+            sns.heatmap(self.data.corr(), annot=True, cmap='Spectral')
+            plt.show()
+            
+    def plot_pairplot(self):
+        if self.data.columns.nunique() < 15:
+            print('-------------------')
+            print(f'{Fore.BLUE}{Style.BRIGHT}DataFrame Pairplot:{Style.RESET_ALL}')
+            print()
+            
+            not_bool_columns = [col for col in self.data.columns if self.data[col].dtypes != bool]
+            df_bool = self.data[not_bool_columns]
+            
+            if self.YCOL:
+                sns.pairplot(df_bool, hue=self.YCOL, palette=sns.color_palette('hls', self.data[self.YCOL].nunique()))
+                plt.show()
+            else:
+                sns.pairplot(df_bool)
+                plt.show()
+                
+    def highlight_greater(self, x):
+        m1 = x['KS_stat'] > 0.5
+        m2 = x['ks_pvalue'] < 0.05
+        m3 = x['PSI_bins'] > 25
+        m4 = x['PSI_percentile'] > 25
+        
+        df1 = pd.DataFrame(index=x.index, columns=x.columns)
+        
+        df1['KS_stat'] = np.where(m1, 'background-color {}'.format('lightgreen'), 'background-color {}'.format('salmon'))
+        df1['ks_pvalue'] = np.where(m2, 'background-color {}'.format('lightgreen'), 'background-color {}'.format('salmon'))
+        df1['mannwhitneyu_p'] = np.where(m2, 'background-color {}'.format('lightgreen'), 'background-color {}'.format('salmon'))
+        df1['PSI_bins'] = np.where(m3, 'background-color {}'.format('lightgreen'), 'background-color {}'.format('salmon'))
+        df1['PSI_percentile'] = np.where(m4, 'background-color {}'.format('lightgreen'), 'background-color {}'.format('salmon'))
+        
+        return df1
+
+    def calculate_psi(self, expected, actual, buckettype='bins', buckets=10, axis=0):
+        """_summary_
+
+        Args:
+            expected (_type_): _description_
+            actual (_type_): _description_
+            buckettype (str, optional): _description_. Defaults to 'bins'.
+            buckets (int, optional): _description_. Defaults to 10.
+            axis (int, optional): _description_. Defaults to 0.
+        """
+        
+        def psi(expected_array, actual_array, buckets):
+            """_summary_
+
+            Args:
+                expected_array (_type_): _description_
+                actual_array (_type_): _description_
+                buckets (_type_): _description_
+            """
+            
+            def scale_range(input, min, max):
+                input += -(np.min(input))
+                input /= np.max(input) / (max - min)
+                input += min
+                return input
+            
+            breakpoints = np.arange(0, buckets + 1) / (buckets) * 100
+            
+            if buckettype == 'bins':
+                breakpoints = scale_range(breakpoints, np.min(expected_array), np.max(expected_array))
+                
+            elif buckettype == 'quantiles':
+                breakpoints = np.stack(
+                    [np.percentile(expected_array, b) for b in breakpoints]
+                )
+                
+            expected_percents = np.histogram(expected_array, breakpoints)[0] / len(expected_array)
+            actual_percents = np.histogram(actual_array, breakpoints)[0] / len(actual_array)
+            
+            def sub_psi(e_perc, a_perc):
+                if a_perc == 0:
+                    a_perc = 0.0001
+                if e_perc == 0:
+                    e_perc = 0.0001
+                
+                value = (e_perc - a_perc) * np.log(e_perc / a_perc)
+                return value
+        
+            psi_value = np.sum(
+                sub_psi(expected_percents[i], actual_percents[i]) for i in range(0, len(expected_percents))
+            )
+            
+            return (psi_value)
+        
+        if len(expected.shape) == 1:
+            psi_values = np.empty(len(expected.shape))
+        else:
+            psi_values = np.empty(expected.shape[axis])
+            
+        for i in range(0, len(psi_values)):
+            if len(psi_values) == 1:
+                psi_values = psi(expected, actual, buckets)
+            elif axis == 0:
+                psi_values[i] = psi(expected[:, i], actual[:, i], buckets)
+            elif axis == 1:
+                psi_values[i] = psi(expected[i, :], actual[i, :], buckets)
+        
+        return (psi_values)
+    
+    def agg_data(self, agg_feat, feat):
+        # to optimize with a loop
+        tmp = self.data.groupby([agg_feat]).agg(
+            min_ = (feat, min),
+            perc_5 = (feat, lambda x: np.percentile(x, 5)),
+            perc_25 = (feat, lambda x: np.percentile(x, 25)),
+            perc_50 = (feat, lambda x: np.percentile(x, 50)),
+            mean = (feat, 'mean'),
+            perc_75 = (feat, lambda x: np.percentile(x, 75)),
+            perc_95 = (feat, lambda x: np.percentile(x, 95)),
+            max_ = (feat, max),
+            _n_ = (feat, 'count')
+        )
+        
+        if self.data[agg_feat].nunique() == 2:
+            temp_level = self.data[agg_feat].unique()[0]
+            ks_stat = scipy.stats.ks_2samp(self.data[self.data[agg_feat] == temp_level])
