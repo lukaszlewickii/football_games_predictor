@@ -247,4 +247,129 @@ class VizData:
         
         if self.data[agg_feat].nunique() == 2:
             temp_level = self.data[agg_feat].unique()[0]
-            ks_stat = scipy.stats.ks_2samp(self.data[self.data[agg_feat] == temp_level])
+            ks_stat = scipy.stats.ks_2samp(self.data[self.data[agg_feat] == temp_level][feat], self.data[self.data[agg_feat] != temp_level][feat]).statistic
+            ks_pvalue = scipy.stats.ks_2samp(self.data[self.data[agg_feat] == temp_level][feat], self.data[self.data[agg_feat] != temp_level][feat]).pvalue
+            wasserstein = scipy.stats.wasserstein_distance(self.data[self.data[agg_feat] == temp_level][feat], self.data[self.data[agg_feat] != temp_level][feat])
+            psi_bins = self.calculate_psi(self.data[self.data[agg_feat] == temp_level][feat], self.data[self.data[agg_feat] != temp_level][feat], buckettype='bins', buckets=10, axis=0)
+            psi_percentile = self.calculate_psi(self.data[self.data[agg_feat] == temp_level][feat], self.data[self.data[agg_feat] != temp_level][feat], buckettype='percentile', buckets=10, axis=0)
+            mann_whitneyu_stat, mann_whitneyu_p = scipy.stats.mannwhitneyu(self.data[self.data[agg_feat] == temp_level][feat], self.data[self.data[agg_feat] != temp_level][feat])
+            
+            tmp['KS_stat'] = ks_stat
+            tmp['KS_pval'] = ks_pvalue
+            tmp['mann_whitney_u_pval'] = mann_whitneyu_p
+            tmp['PSI_percentile'] = psi_percentile.round(2) * 100
+            tmp = tmp.style.format('{:2f}').apply(self.highlight_greater, axis=None)
+        display(HTML(tmp.to_html()))
+        
+    def agg_data_simple(self, agg_feat, feat):
+        tmp = self.data.groupby(agg_feat).agg(
+            min_ = (feat, min),
+            perc_5 = (feat, lambda x: np.percentile(x, 5)),
+            perc_25 = (feat, lambda x: np.percentile(x, 25)),
+            perc_50 = (feat, lambda x: np.percentile(x, 50)),
+            mean = (feat, 'mean'),
+            perc_75 = (feat, lambda x: np.percentile(x, 75)),
+            perc_95 = (feat, lambda x: np.percentile(x, 95)),
+            max_ = (feat, max),
+            _n_ = (feat, 'count')
+        )
+        return tmp
+    
+    def plot_stability_of_percentile(self, agg_data, col_to_agg):
+        data = self.agg_data_simple(agg_data, col_to_agg)
+        plt.figure(figsize=(12,5))
+        sns.lineplot(data[['perc_5', 'perc_25', 'perc_50', 'perc_75', 'perc_95']], markers='o')
+        plt.title(f'Stability of percentile of {col_to_agg}')
+    
+    def plot_kde_box(self):
+        print('-----------------')
+        print(f'{Fore.YELLOW}{Style.BRIGHT}KDE(s) and Boxplot(s):{Style.RESET_ALL}')
+        print()
+        
+        if not self.YCOL:
+            for idx, col in enumerate(self.num_cols):
+                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14,6))
+                
+                sns.histplot(self.data, x=self.data[col], kde=True, color=sns.color_palette('hls', len(self.num_cols))[idx], ax=ax1)
+                
+                sns.boxplot(x=self.data[col], width=.3, linewidth=3, fliersize=25, color=sns.color_palette('hls', len(self.num_cols))[idx], ax=ax2)
+                
+                fig.suptitle(f'KDE and boxplot of {col}', size=20, y=1.02)
+                # self.style_()
+                plt.show()
+                
+                if self.data_col:
+                    self.plot_stability_of_percentile(self.data_col, col)
+                    plt.show()
+                
+        elif self.YCOL and self.data[self.YCOL].nunique() == 2:
+            for idx, col in enumerate(self.num_cols):
+                self.agg_data(self.YCOL, col)
+                fig, (ax_1, ax_2) = plt.subplots(2, 3, figsize=(16,12))
+                ax1, ax2, ax3 = ax_1
+                ax4, ax5, ax6 = ax_2
+                
+                sns.kdeplot(x=col, data=self.data, hue=self.YCOL, ax=ax1)
+                sns.rugplot(x=col, data=self.data, height=.02, hue=self.YCOL, clip_on=False, ax=ax1)
+                ax1.set_title('Normal all 100%')
+                self.style_(ax1)
+                
+                for level in self.data[self.YCOL].unique():
+                    sns.kdeplot(x=col, data=self.data[self.data[self.YCOL] == level], ax=ax2)
+                    plt.legend(self.data[self.YCOL].unique())
+                ax2.set_title('Normal each level 100%')
+                self.style_(ax2)
+                
+                box_dict = {
+                            'boxprops': dict(color='#000000', linewidth=2),
+                            'capprops': dict(color='#000000', linewidth=1.5),
+                            'medianprops': dict(color='#000000', linewidth=1.5),
+                            'whiskerprops': dict(color='#000000', linewidth=1.5),
+                            'flierprops': dict(markeredgecolor='#ff9900'),
+                            'meanprops': dict(markeredgecolor='#000000')
+                            }
+                
+                self.data.boxplot(by=self.YCOL, column=[col], widths=0.5, showmeans=True, patch_artist=True, vert=False, **box_dict, ax=ax3)
+                
+                ax3.set_ylim(ax3.get_ylin()[::-1])
+                ax3.set_title(None)
+                ax3.set_xlabel(col)
+                ax3.set_title(f'{col} divided by {self.YCOL}')
+                self.style_(ax3)
+                
+                boxes = ax3.findobj(plt.artist.Artist)
+                
+                sns.kdeplot(x=np.log1p(self.data[col]), hue=self.data[self.YCOL], ax=ax4)
+                sns.rugplot(x=np.log1p(self.data[col]), height=.02, hue=self.data[self.YCOL], clip_on=False, ax=ax4)
+                ax4.set_title('Log all 100%')
+                self.style_(ax4)
+                
+                for level in self.data[self.YCOL].unique():
+                    sns.kdeplot(x=np.log1p(self.data[self.data[self.YCOL] == level][col]), ax=ax5)
+                    plt.legend(self.data[self.YCOL].unique())
+                ax5.set_title('Log each level 100%')
+                self.style_(ax5)
+                
+                self.data[f'{col}_log'] = np.log1p(self.data[col])
+                self.data.boxplot(by=self.YCOL, column=[f'{col}_log'], width=.5, showmeans=True, patch_artist=True, vert=False, **box_dict, ax=ax6)
+                del self.data[f'{col}_log']
+                boxes2 = ax6.findjob(plt.artist.Artist)
+                
+                if self.data[self.YCOL].dtypes == 'O':
+                    for i, box in enumerate(boxes):
+                        if isinstance(box, plt.patches.PathPatch):
+                            if i < 3: box.set_facecolor('#ea4b33')
+                            if i > 3: box.set_facecolor('#3490d6')
+                else:
+                    for i, box in enumerate(boxes):
+                        if isinstance(box, plt.patches.PathPatch):
+                            if i < 3: box.set_facecolor('#3490d6')
+                            if i > 3: box.set_facecolor('#ea4b33')
+                            
+                fig.suptitle(f'KDE and boxplot of {col}', size=20, y=1.02)
+                self.style_()
+                plt.show()
+                
+                if self.data_col:
+                    self.plot_stability_of_percentile(self.data_col, col)
+                    plt.show()
