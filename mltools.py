@@ -7,6 +7,7 @@ import seaborn as sns
 import scipy
 import missingno as msno
 from colorama import Fore, Back, Style
+import mplcyberpunk
 
 class VizData:
     def __init__(self, data: pd.DataFrame, YCOL: str, data_col: str, plt_style: str = 'default'):
@@ -16,8 +17,23 @@ class VizData:
         self.plt_style = plt_style
         plt.style.use(self.plt_style)
         
-        categorical_columns = [col for col in self.data.columns if self.data[col].dtypes == 'O' and col != self.data_col]
+        cat_cols = [col for col in self.data.columns if self.data[col].dtypes == 'O' and col != self.data_col]
+        num_but_cat = [col for col in self.data.columns if self.data[col].nunique() <= 15 and self.data[col].dtypes != 'O']
+        cat_but_car = [col for col in self.data.columns if self.data[col].nunique() > 15 and self.data[col].dtypes == 'O']
+        cat_cols = cat_cols + num_but_cat
+        self.cat_cols = [col for col in cat_cols if col not in cat_but_car]
         
+        #numerical variables
+        num_cols = [col for col in self.data.columns if self.data[col].dtypes != 'O']
+        data_cols = self.data.select_dtypes(include=['datetime64']).columns.tolist()
+        
+        self.num_cols = [col for col in num_cols if col not in num_but_cat + data_cols]
+        
+    def style_(self, ax=None):
+        if self.plt_style == 'cyberpunk':
+            mplcyberpunk.add_glow_effects(ax)
+            mplcyberpunk.add_underglow(ax)
+    
     def get_basic_info(self, n=10):
         
         #head of df
@@ -390,3 +406,87 @@ class VizData:
                 if self.data_col:
                     self.plot_stability_of_percentile(self.data_col, col)
                     plt.show()
+            
+    def cramers_V(self, col1, col2):
+        crosstab = np.array(pd.crosstab(col1, col2, rownames=None, colnames=None))
+        stat = scipy.stats.chi2_contingency(crosstab)[0]
+        obs = np.sum(crosstab)
+        mini = min(crosstab.shape) - 1
+        return (stat / (obs * mini))
+    
+    def agg_two_cat(self, col1, col2):
+        table = pd.crosstab(self.data[col1], self.data[col2], margins=False)
+        table = table.apply(lambda r: r.astype(str) + ' (' + round(r / r.sum() * 100, 1).astype(str) + '%)', axis=1)
+        display(table)
+        display('V-cramer:', self.cramers_V(self.data[col1], self.data[col2]).round(3))
+        
+    def plot_stability_of_level(self, agg_data, col_to_agg):
+        data = self.data.groupby([agg_data])[col_to_agg].value_counts(normalize=True).unstack()
+        plt.figure(figsize=(12,5))
+        sns.lineplot(data, markers='o')
+        plt.title(f'Stability of levels of {col_to_agg}')
+        plt.show()
+    
+    def plot_count_plot(self):
+        if len(self.cat_cols) > 0:
+            print('----------')
+            print(f'{Fore.YELLOW}{Style.BRIGHT}Countplot(s):{Style.RESET_ALL}')
+            print()
+            
+            for col in self.cat_cols:
+                plt.figure(figsize=(12,8))
+                for i in self.data[col].value_counts().keys():
+                    if len(str(i)) > 15:
+                        plt.xticks(fontsize=8)
+                        plt.yticks(fontsize=8)
+                        
+                large_to_small = self.data.groupby(col).size().sort_values().index[::-1]
+                
+                if len(self.data[col].value_counts()) >= 10 & self.data[self.YCOL].nunique() < 5:
+                    if self.YCOL:
+                        self.agg_two_cat(self.YCOL, col)
+                        ax = sns.countplot(y=self.data[col], hue=self.data[self.YCOL], edgecolor='#000000', order=large_to_small)
+                    else:
+                        ax = sns.countplot(y=self.data[col], edgecolor='#000000', order=large_to_small)
+                    
+                    for container in ax.containers:
+                        ax.bar_label(container, padding=5)
+                        
+                    plt.title(f'Countplot of {col}', fontsize=20)
+                    self.style_()
+                    plt.show()
+                    
+                elif len(self.data[col].value_counts()) > 1:
+                    if self.data[self.YCOL].nunique() < 5:
+                        self.agg_two_cat(self.YCOL, col)
+                        ax = sns.countplot(x=self.data[col], hue=self.data[self.YCOL], edgecolor='#000000', order=large_to_small)
+                        
+                        for container in ax.containers:
+                            ax.bar_label(container, padding=5)
+                            
+                        plt.title(f'Countplot of {col}', fontsize=20)
+                        self.style_()
+                        plt.show()
+                        
+                if self.data[self.YCOL].nunique() > 20:
+                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14,6))
+                    agg_data = self.agg_data_simple(col, self.YCOL)
+                    display(agg_data)
+                    sns.kdeplot(data=self.data, x=self.YCOL, hue=col, ax=ax1)
+                    sns.boxplot(data=self.data, x=self.YCOL, hue=col, width=.4, linewidth=3, fliersize=2.5, ax=ax2)
+                    fig.suptitle(f'KDE and boxplot of {col}', size=20, y=1.02)
+                    self.style_()
+                    plt.show()
+                
+                if self.data_col and self.data[col].nunique() < 20:
+                    self.plot_stability_of_level(self.data_col, col)
+                    plt.show()
+    def main(self):
+        self.get_basic_info(n=10)
+        self.get_describe_of_data()
+        self.get_missing_data()
+        self.plot_stability_of_missing_data()
+        self.plot_correlation()
+        self.plot_pairplot()
+        self.plot_kde_box()
+        self.plot_count_plot()
