@@ -373,3 +373,20 @@ class VizData:
                 if self.data_col:
                     self.plot_stability_of_percentile(self.data_col, col)
                     plt.show()
+                    
+        elif self.YCOL and self.data[self.YCOL].nunique() > 20:
+            for idx, col in enumerate(self.num_cols):
+                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14,6))
+                
+                self.data['tmp'] = 'agg'
+                agg_data = self.agg_data_simple('tmp', col)
+                display(agg_data)
+                sns.histplot(self.data, x=self.data[col], kde=True, color=sns.color_palette('hls', len(self.num_cols))[idx], ax=ax1)
+                sns.boxplot(x=self.data[col], width=.4, linewidth=3, fliersize=2.5, color=sns.color_palette('hls', len(self.num_cols))[idx], ax=ax2)
+                fig.suptitle(f'KDE and boxplot of {col}', size=20, y=1.02)
+                self.style_()
+                plt.show()
+                
+                if self.data_col:
+                    self.plot_stability_of_percentile(self.data_col, col)
+                    plt.show()
