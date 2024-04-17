@@ -24,7 +24,7 @@ class Predictor:
         model.add(Dense(128, activation='relu'))
         model.add(Dropout(0.2))
         model.add(Dense(64, activation='relu'))
-        model.add(Dense(5, activation='linear'))  # 5 outputs: wynik, liczba goli, liczba rzutów rożnych, liczba kartek, kurs spotkania
+        model.add(Dense(5, activation='linear'))  # 5 outputów: wynik, liczba goli, liczba rzutów rożnych, liczba kartek, kurs spotkania
         model.compile(optimizer='adam', loss='mean_squared_error')
         return model
 
