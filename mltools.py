@@ -37,7 +37,7 @@ class VizData:
     def get_basic_info(self, n=10):
         
         #head of df
-        print(f'{Fore.GREEN}{Style.Bright}DataFrame Sample:{Style.RESET_ALL}')
+        print(f'{Fore.GREEN}{Style.BRIGHT}DataFrame Sample:{Style.RESET_ALL}')
         display(self.data.sample(n))
         
         #shape of df
@@ -485,8 +485,8 @@ class VizData:
         self.get_basic_info(n=10)
         self.get_describe_of_data()
         self.get_missing_data()
-        self.plot_stability_of_missing_data()
-        self.plot_correlation()
+        # self.plot_stability_of_missing_data()
+        # self.plot_correlation()
         self.plot_pairplot()
         self.plot_kde_box()
         self.plot_count_plot()
