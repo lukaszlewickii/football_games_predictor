@@ -12,6 +12,15 @@ WeightInitializer - custom class that handles the initialization of weights
 Crucial step because different initialization methods can significantly affect the convergence behavior
 """
 
+"""
+Architecture of my custom nn:
+- input layer - information about teams for specific date on which a match against them is player
+- preprocess layer - data preprocessing
+- analysis hidden layer - information about h2h games from the past
+- hidden layers
+- output layer - prediction of result, amount of goals scored, corner kicks, yellow/red cards and odds for the game (based on odds from training set)
+"""
+
 class WeightInitializer:
     def __init__(self, method='random'):
         self.method = method
