@@ -1,2 +1,3 @@
 # football_games_predictor
-Repo for building a model for my master's thesis in Computer Science.
+
+AI is becoming more and more ubiquitous in football. Clubs like Brighton, Real Betis or Wisła Kraków have been implementing complex machine learning algorithms for several months (if not years now) to maximize team performance, adapt tactics for a specific opponent or develop scouting to find better players and coaches. However, I would like use them aiming for a bit different purpose. The goal of my project is to build fully customized LSTM that will predict the winner of the game between two teams based on their recent performance and head-to-head games, statistics from the game like number of corners taken, fouls commited, cards given etc., and also to check if is possible to beat the stakeholder and win some bets using AI.
