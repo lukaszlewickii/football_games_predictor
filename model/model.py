@@ -80,3 +80,46 @@ class FootballPredictor:
 
     def predict(self, X_new_data):
         return self.model.predict(X_new_data)
+    
+"""
+from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, Concatenate
+from tensorflow.keras.models import Model
+
+def build_custom_model(input_shape, h2h_shape):
+    # Warstwa wejściowa
+    main_input = Input(shape=input_shape, name='main_input')
+    h2h_input = Input(shape=h2h_shape, name='h2h_input')
+
+    # LSTM analizujące dane ogólne
+    lstm_out = LSTM(64, return_sequences=True)(main_input)
+    lstm_out = Dropout(0.5)(lstm_out)
+    lstm_out = LSTM(32)(lstm_out)
+    lstm_out = Dropout(0.3)(lstm_out)
+
+    # Analiza h2h
+    h2h_dense = Dense(32, activation='relu')(h2h_input)
+
+    # Połączenie warstw
+    combined = Concatenate()([lstm_out, h2h_dense])
+
+    # Głębokie warstwy ukryte
+    dense_out = Dense(64, activation='relu')(combined)
+    dense_out = Dropout(0.3)(dense_out)
+    final_out = Dense(128, activation='relu')(dense_out)
+
+    # Warstwa wyjściowa
+    output = Dense(5, activation='linear')(final_out)
+
+    model = Model(inputs=[main_input, h2h_input], outputs=output)
+    model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+    return model
+
+# Wymiary wejść
+input_shape = (X_train.shape[1], 1)
+h2h_shape = (6,)  # przykładowa liczba cech h2h
+
+# Budowanie modelu
+model = build_custom_model(input_shape, h2h_shape)
+model.summary()
+
+"""
