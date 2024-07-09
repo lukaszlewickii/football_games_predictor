@@ -1,25 +1,26 @@
 import pandas as pd
 import numpy as np
+import argparse
 
 class FootballPredictorDataWrapper:
     def __init__(self, data):
-        self.data = self.data
+        self.data = data
     
-    def clean_data(self):
+    def clean_data(self, df):
         #transforming date variable
-        self.data['date_GMT'] = pd.to_datetime(self.data['date_GMT'])
-        self.data['date'] = pd.to_datetime(self.data['date_GMT'].dt.date)
-        self.data['time'] = self.data['date_GMT'].dt.time
+        df['date_GMT'] = pd.to_datetime(df['date_GMT'])
+        df['date'] = pd.to_datetime(df['date_GMT'].dt.date)
+        df['time'] = df['date_GMT'].dt.time
         
         #adding aggregated variables
-        self.data['corners_total'] = self.data['home_team_corner_count'] + self.data['away_team_corner_count']
-        self.data['yellow_cards_total'] = self.data['home_team_yellow_cards'] + self.data['away_team_yellow_cards']
-        self.data['red_cards_total'] = self.data['home_team_red_cards'] + self.data['away_team_red_cards']
-        self.data['cards_total'] = self.data['yellow_cards_total'] + self.data['red_cards_total']
-        self.data['shots_total'] = self.data['home_team_shots'] + self.data['away_team_shots']
-        self.data['shots_on_target_total'] = self.data['home_team_shots_on_target'] + self.data['away_team_shots_on_target']
-        self.data['shots_off_target_total'] = self.data['home_team_shots_off_target'] + self.data['away_team_shots_off_target']
-        self.data['fouls_total'] = self.data['home_team_fouls'] + self.data['away_team_fouls']
+        df['corners_total'] = df['home_team_corner_count'] + df['away_team_corner_count']
+        df['yellow_cards_total'] = df['home_team_yellow_cards'] + df['away_team_yellow_cards']
+        df['red_cards_total'] = df['home_team_red_cards'] + df['away_team_red_cards']
+        df['cards_total'] = df['yellow_cards_total'] + df['red_cards_total']
+        df['shots_total'] = df['home_team_shots'] + df['away_team_shots']
+        df['shots_on_target_total'] = df['home_team_shots_on_target'] + df['away_team_shots_on_target']
+        df['shots_off_target_total'] = df['home_team_shots_off_target'] + df['away_team_shots_off_target']
+        df['fouls_total'] = df['home_team_fouls'] + df['away_team_fouls']
         
         #getting stadium names without city in brackets
         # self.data['base_name'] = self.data['stadium_name'].str.replace(r" \(.*\)$", "", regex=True)
@@ -32,10 +33,10 @@ class FootballPredictorDataWrapper:
         # self.data['normalized_stadium'] = self.data.apply(lambda row: f"{row['base_name']} ({city_map.get(row['base_name'], 'Unknown')})" if '(' not in row['stadium_name'] else row['stadium_name'], axis=1)
 
         #dropping unnecessary features
-        self.data.drop(['timestamp', 'status', 'home_team_goal_timings', 'away_team_goal_timings', 'date_GMT'], axis=1, inplace=True)
+        df.drop(['timestamp', 'status', 'home_team_goal_timings', 'away_team_goal_timings', 'date_GMT'], axis=1, inplace=True)
         
         #setting one of the target variable - result of the game
-        self.data['result'] = np.where(self.data['home_team_goal_count'] == self.data['away_team_goal_count'], 0, np.where(self.data['home_team_goal_count'] > self.data['away_team_goal_count'], 1, 2))
+        df['result'] = np.where(df['home_team_goal_count'] == df['away_team_goal_count'], 0, np.where(df['home_team_goal_count'] > df['away_team_goal_count'], 1, 2))
         
         def assign_season(date):
             year = date.year
@@ -44,11 +45,11 @@ class FootballPredictorDataWrapper:
             else:
                 return f'{str(year-1)[2:]}/{str(year)[2:]}'
         
-        self.data['season'] = self.data['date'].apply(assign_season)
+        df['season'] = df['date'].apply(assign_season)
         
-        return self.data
+        return df
     
-    def add_cumulative_goals_scored_before_game(self):
+    def add_cumulative_goals_scored_before_game(self, df):
 
         #creating working dataframe with goals scored as well as a home team as an away team
         goals = pd.concat([
@@ -67,12 +68,14 @@ class FootballPredictorDataWrapper:
 
         #merging back to original datafame
         df = df.merge(goals[['date', 'team', 'cumulative_goals']], left_on=['date', 'home_team_name'], 
-                      right_on=['date', 'team'], how='left').rename(columns={'cumulative_goals': 'cumulative_home_goals'}).drop('team', axis=1)
+                      right_on=['date', 'team'], how='left').rename(columns={'cumulative_goals': 'home_team_cumulative_goals_scored_pre_game'}).drop('team', axis=1)
         
         df = df.merge(goals[['date', 'team', 'cumulative_goals']], left_on=['date', 'away_team_name'], 
-                      right_on=['date', 'team'], how='left').rename(columns={'cumulative_goals': 'cumulative_away_goals'}).drop('team', axis=1)
+                      right_on=['date', 'team'], how='left').rename(columns={'cumulative_goals': 'away_team_cumulative_goals_scored_pre_game'}).drop('team', axis=1)
         
-    def add_cumulative_goals_conceded_before_game(self):
+        return df
+        
+    def add_cumulative_goals_conceded_before_game(self, df):
         
         #creating working dataframe with goals conceded as well as a home team as an away team
         goals_conceded = pd.concat([
@@ -86,203 +89,224 @@ class FootballPredictorDataWrapper:
         #calculating cumulative goals conceded for every team
         goals_conceded['cumulative_goals_conceded'] = goals_conceded.groupby('team')['goals_conceded'].cumsum()
 
-        # Usunięcie bieżących bramek straconych z kumulatywnej sumy, aby liczyć tylko bramki przed bieżącym meczem
+        #substracting cumulative goals by goals conceded in specific game to count goals only before game
         goals_conceded['cumulative_goals_conceded'] -= goals_conceded['goals_conceded']
 
-        # Dodanie kumulatywnych bramek straconych do oryginalnego DataFrame
+        #merging back to original dataframe
         df = df.merge(goals_conceded[['date', 'team', 'cumulative_goals_conceded']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'cumulative_goals_conceded': 'home_team_cumulative_goals_conceded_pre_game'}).drop('team', axis=1)
         df = df.merge(goals_conceded[['date', 'team', 'cumulative_goals_conceded']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'cumulative_goals_conceded': 'away_team_cumulative_goals_conceded_pre_game'}).drop('team', axis=1)
         
-    def add_average_goals_scored_and_conceded_per_game_before_game(self):
-        # Dodanie kolumn z goli zdobytymi przez gospodarzy i gości
+        return df
+        
+    def add_average_goals_scored_and_conceded_per_game_before_game(self, df):
+
+        #adding working features with goals scored by hosts and guests
         df['home_goals_scored'] = df['home_team_goal_count']
         df['away_goals_scored'] = df['away_team_goal_count']
 
-        # Dodanie kolumn z goli straconymi przez gospodarzy i gości
+        #adding working features with goals conceded by hosts and guests
         df['home_goals_conceded'] = df['away_team_goal_count']
         df['away_goals_conceded'] = df['home_team_goal_count']
         
-        # Tworzenie DataFrame z danymi dotyczącymi zdobytych i straconych goli
+        #creating working dataframe with goals scored and conceded as well as a home team as an away team
         goals_data = pd.concat([
             df[['date', 'home_team_name', 'home_goals_scored', 'home_goals_conceded']].rename(columns={'home_team_name': 'team', 'home_goals_scored': 'goals_scored', 'home_goals_conceded': 'goals_conceded'}),
             df[['date', 'away_team_name', 'away_goals_scored', 'away_goals_conceded']].rename(columns={'away_team_name': 'team', 'away_goals_scored': 'goals_scored', 'away_goals_conceded': 'goals_conceded'})
         ])
 
-        # Sortowanie danych według daty
+        #sorting data by date
         goals_data.sort_values('date', inplace=True)
         
-        
-        # Obliczanie kumulatywnych sum goli zdobytych i straconych
+        #calculating cumulative goals scored and conceded
         goals_data['cumulative_goals_scored'] = goals_data.groupby('team')['goals_scored'].cumsum()
         goals_data['cumulative_goals_conceded'] = goals_data.groupby('team')['goals_conceded'].cumsum()
 
-        # Liczenie liczby meczów
+        #counting number of games played
         goals_data['games_played'] = goals_data.groupby('team').cumcount() + 1
 
-        # Obliczanie średniej liczby goli zdobytych i straconych na mecz
+        #calculating average goals scored and conceded per game
         goals_data['average_goals_scored_per_game'] = goals_data['cumulative_goals_scored'] / goals_data['games_played']
         goals_data['average_goals_conceded_per_game'] = goals_data['cumulative_goals_conceded'] / goals_data['games_played']
 
-        # Usuwamy ostatni mecz, aby uzyskać dane przed bieżącym meczem
+        #removing last game
         goals_data['average_goals_scored_per_game_pre_game'] = goals_data.groupby('team')['average_goals_scored_per_game'].shift().fillna(0)
         goals_data['average_goals_conceded_per_game_pre_game'] = goals_data.groupby('team')['average_goals_conceded_per_game'].shift().fillna(0)
         
+        #merging back to original dataframe
         df = df.merge(goals_data[['date', 'team', 'average_goals_scored_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_goals_scored_per_game_pre_game': 'home_team_average_goals_scored_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(goals_data[['date', 'team', 'average_goals_scored_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_goals_scored_per_game_pre_game': 'away_team_average_goals_scored_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(goals_data[['date', 'team', 'average_goals_conceded_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_goals_conceded_per_game_pre_game': 'home_team_average_goals_conceded_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(goals_data[['date', 'team', 'average_goals_conceded_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_goals_conceded_per_game_pre_game': 'away_team_average_goals_conceded_per_game_pre_game'}).drop('team', axis=1)
         
-    def add_average_goals_scored_first_second_half_per_game_before_game(self):
+        return df
+        
+    def add_average_goals_scored_in_first_and_second_half_per_game_before_game(self, df):
+        
+        #creating working features
         df['home_team_second_half_goals'] = df['home_team_goal_count'] - df['home_team_goal_count_half_time']
         df['away_team_second_half_goals'] = df['away_team_goal_count'] - df['away_team_goal_count_half_time']
         
-        # Tworzenie DataFrame z danymi o golach zdobytych w obu połowach
+        #creating working dataframe with goals scored per half
         goals_data_half = pd.concat([
             df[['date', 'home_team_name', 'home_team_goal_count_half_time', 'home_team_second_half_goals']].rename(columns={'home_team_name': 'team', 'home_team_goal_count_half_time': 'first_half_goals', 'home_team_second_half_goals': 'second_half_goals'}),
             df[['date', 'away_team_name', 'away_team_goal_count_half_time', 'away_team_second_half_goals']].rename(columns={'away_team_name': 'team', 'away_team_goal_count_half_time': 'first_half_goals', 'away_team_second_half_goals': 'second_half_goals'})
         ])
 
-        # Sortowanie danych według daty
+        #sorting data by date
         goals_data_half.sort_values('date', inplace=True)
         
-        # Obliczanie kumulatywnych sum goli zdobytych w pierwszej i drugiej połowie
+        #calculating cumulative goals scored in first and second half
         goals_data_half['cumulative_first_half_goals'] = goals_data_half.groupby('team')['first_half_goals'].cumsum()
         goals_data_half['cumulative_second_half_goals'] = goals_data_half.groupby('team')['second_half_goals'].cumsum()
 
-        # Liczenie liczby meczów
+        #counting number of games
         goals_data_half['games_played'] = goals_data_half.groupby('team').cumcount() + 1
 
-        # Obliczanie średniej liczby goli na mecz w pierwszej i drugiej połowie
+        #calculating average goals per half
         goals_data_half['average_first_half_goals_per_game'] = goals_data_half['cumulative_first_half_goals'] / goals_data_half['games_played']
         goals_data_half['average_second_half_goals_per_game'] = goals_data_half['cumulative_second_half_goals'] / goals_data_half['games_played']
 
-        # Usuwamy ostatni mecz, aby uzyskać dane przed bieżącym meczem
+        #removing last game
         goals_data_half['average_first_half_goals_per_game_pre_game'] = goals_data_half.groupby('team')['average_first_half_goals_per_game'].shift().fillna(0)
         goals_data_half['average_second_half_goals_per_game_pre_game'] = goals_data_half.groupby('team')['average_second_half_goals_per_game'].shift().fillna(0)
 
+        #merging back to original dataframe
         df = df.merge(goals_data_half[['date', 'team', 'average_first_half_goals_per_game_pre_game', 'average_second_half_goals_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_first_half_goals_per_game_pre_game': 'home_team_average_first_half_goals_scored_pre_game', 'average_second_half_goals_per_game_pre_game': 'home_team_average_second_half_goals_scored_pre_game'}).drop('team', axis=1)
         df = df.merge(goals_data_half[['date', 'team', 'average_first_half_goals_per_game_pre_game', 'average_second_half_goals_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_first_half_goals_per_game_pre_game': 'away_team_average_first_half_goals_scored_pre_game', 'average_second_half_goals_per_game_pre_game': 'away_team_average_second_half_goals_scored_pre_game'}).drop('team', axis=1)
-        # df.drop([''])
         
-    def add_average_goals_conceded_first_second_half_per_game_before_game(self):    
-        # Kolumny home_goals_conceded i away_goals_conceded są już obliczone wcześniej:
-        # df['home_goals_conceded'] = df['away_team_goal_count']
-        # df['away_goals_conceded'] = df['home_team_goal_count']
+        return df
+        
+    def add_average_goals_conceded_in_first_and_second_half_per_game_before_game(self, df):    
+
+        #creating working features
         df['home_goals_conceded_first_half'] = df['away_team_goal_count_half_time']
         df['away_goals_conceded_first_half'] = df['home_team_goal_count_half_time']
         df['home_goals_conceded_second_half'] = df['away_goals_conceded'] - df['away_goals_conceded_first_half']
         df['away_goals_conceded_second_half'] = df['home_goals_conceded'] - df['home_goals_conceded_first_half']
         
-        # Tworzenie DataFrame z danymi o bramkach straconych
+        #creating working dataframe with goals conceded
         conceded_goals_data = pd.concat([
             df[['date', 'home_team_name', 'home_goals_conceded_first_half', 'home_goals_conceded_second_half']].rename(columns={'home_team_name': 'team', 'home_goals_conceded_first_half': 'first_half_conceded', 'home_goals_conceded_second_half': 'second_half_conceded'}),
             df[['date', 'away_team_name', 'away_goals_conceded_first_half', 'away_goals_conceded_second_half']].rename(columns={'away_team_name': 'team', 'away_goals_conceded_first_half': 'first_half_conceded', 'away_goals_conceded_second_half': 'second_half_conceded'})
         ])
 
-        # Sortowanie danych według daty
+        #sorting data by date
         conceded_goals_data.sort_values('date', inplace=True)
         
-        # Obliczanie kumulatywnych sum bramek straconych
+        #calculating cumulative goals conceded
         conceded_goals_data['cumulative_first_half_conceded'] = conceded_goals_data.groupby('team')['first_half_conceded'].cumsum()
         conceded_goals_data['cumulative_second_half_conceded'] = conceded_goals_data.groupby('team')['second_half_conceded'].cumsum()
 
-        # Liczenie liczby meczów
+        #counting number of games played
         conceded_goals_data['games_played'] = conceded_goals_data.groupby('team').cumcount() + 1
 
-        # Obliczanie średniej liczby bramek straconych na mecz w pierwszej i drugiej połowie
+        #calculating average goals scored in both halfs
         conceded_goals_data['average_first_half_conceded_per_game'] = conceded_goals_data['cumulative_first_half_conceded'] / conceded_goals_data['games_played']
         conceded_goals_data['average_second_half_conceded_per_game'] = conceded_goals_data['cumulative_second_half_conceded'] / conceded_goals_data['games_played']
 
-        # Usuwamy ostatni mecz, aby uzyskać dane przed bieżącym meczem
+        #removing last game
         conceded_goals_data['average_first_half_conceded_per_game_pre_game'] = conceded_goals_data.groupby('team')['average_first_half_conceded_per_game'].shift().fillna(0)
         conceded_goals_data['average_second_half_conceded_per_game_pre_game'] = conceded_goals_data.groupby('team')['average_second_half_conceded_per_game'].shift().fillna(0)
     
+        #merging back to original dataframe
         df = df.merge(conceded_goals_data[['date', 'team', 'average_first_half_conceded_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_first_half_conceded_per_game_pre_game': 'home_team_average_first_half_goals_conceded_pre_game'}).drop('team', axis=1)
         df = df.merge(conceded_goals_data[['date', 'team', 'average_second_half_conceded_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_second_half_conceded_per_game_pre_game': 'home_team_average_second_half_goals_conceded_pre_game'}).drop('team', axis=1)
         df = df.merge(conceded_goals_data[['date', 'team', 'average_first_half_conceded_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_first_half_conceded_per_game_pre_game': 'away_team_average_first_half_goals_conceded_pre_game'}). drop('team', axis=1)
         df = df.merge(conceded_goals_data[['date', 'team', 'average_second_half_conceded_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_second_half_conceded_per_game_pre_game': 'away_team_average_second_half_goals_conceded_pre_game'}).drop('team', axis=1)
     
-    def add_average_goals_total_first_second_half_per_game_before_game(self):
+        return df
+    
+    def add_average_goals_total_in_first_and_second_half_per_game_before_game(self, df):
+        
+        #creating working features
         df['home_first_half_goals'] = df['home_team_goal_count_half_time']
         df['home_second_half_goals'] = df['home_team_goal_count'] - df['home_team_goal_count_half_time']
         df['away_first_half_goals'] = df['away_team_goal_count_half_time']
         df['away_second_half_goals'] = df['away_team_goal_count'] - df['away_team_goal_count_half_time']
         
+        #creating working dataframe with total goals in both halfs
         goals_data_half = pd.concat([
             df[['date', 'home_team_name', 'home_first_half_goals', 'home_second_half_goals']].rename(columns={'home_team_name': 'team', 'home_first_half_goals': 'first_half_goals', 'home_second_half_goals': 'second_half_goals'}),
             df[['date', 'away_team_name', 'away_first_half_goals', 'away_second_half_goals']].rename(columns={'away_team_name': 'team', 'away_first_half_goals': 'first_half_goals', 'away_second_half_goals': 'second_half_goals'})
         ])
 
-        # Sortowanie danych według daty
+        #sorting data by date
         goals_data_half.sort_values('date', inplace=True)
     
         goals_data_half['cumulative_first_half_goals'] = goals_data_half.groupby('team')['first_half_goals'].cumsum()
         goals_data_half['cumulative_second_half_goals'] = goals_data_half.groupby('team')['second_half_goals'].cumsum()
 
-        # Liczenie liczby meczów
+        #counting number of games played
         goals_data_half['games_played'] = goals_data_half.groupby('team').cumcount() + 1
 
-        # Obliczanie średniej liczby bramek zdobytych w pierwszej i drugiej połowie na mecz
+        #calculating average goals scores in both halfs
         goals_data_half['average_first_half_goals_per_game'] = goals_data_half['cumulative_first_half_goals'] / goals_data_half['games_played']
         goals_data_half['average_second_half_goals_per_game'] = goals_data_half['cumulative_second_half_goals'] / goals_data_half['games_played']
         
         goals_data_half['average_first_half_goals_per_game_pre_game'] = goals_data_half.groupby('team')['average_first_half_goals_per_game'].shift().fillna(0)
         goals_data_half['average_second_half_goals_per_game_pre_game'] = goals_data_half.groupby('team')['average_second_half_goals_per_game'].shift().fillna(0)
 
+        #merging back to original dataframe
         df = df.merge(goals_data_half[['date', 'team', 'average_first_half_goals_per_game_pre_game', 'average_second_half_goals_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_first_half_goals_per_game_pre_game': 'home_team_average_first_half_goals_total_pre_game', 'average_second_half_goals_per_game_pre_game': 'home_team_average_second_half_goals_total_pre_game'}).drop('team', axis=1)
         df = df.merge(goals_data_half[['date', 'team', 'average_first_half_goals_per_game_pre_game', 'average_second_half_goals_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_first_half_goals_per_game_pre_game': 'away_team_average_first_half_goals_total_pre_game', 'average_second_half_goals_per_game_pre_game': 'away_team_average_second_half_goals_total_pre_game'}).drop('team', axis=1)
 
-    def add_average_total_corners_per_game_before_game(self):
+        return df
+
+    def add_average_total_corners_per_game_before_game(self, df):
         
-        # Tworzenie DataFrame z łączną liczbą rzutów rożnych zarówno w domu, jak i na wyjeździe
+        #creating working dataframe with number of corners
         corners = pd.concat([
             df[['date', 'home_team_name', 'corners_total']].rename(columns={'home_team_name': 'team', 'corners_total': 'corners'}),
             df[['date', 'away_team_name', 'corners_total']].rename(columns={'away_team_name': 'team', 'corners_total': 'corners'})
         ])
 
-        # Sortowanie danych według daty, aby kumulatywne średnie były poprawne
+        #sorting data by date
         corners.sort_values('date', inplace=True)
     
-        # Obliczanie sumy i liczby meczów
+        #counting number of games played
         corners['cumulative_corners'] = corners.groupby('team')['corners'].cumsum()
         corners['games_played'] = corners.groupby('team').cumcount() + 1  # Dodajemy 1, bo cumcount zaczyna od 0
 
-        # Obliczanie średniej kumulatywnej
+        #calculating average cumulative corners
         corners['average_corners'] = corners['cumulative_corners'] / corners['games_played']
 
-        # Usuwamy ostatni mecz, aby uzyskać średnią przed bieżącym meczem
+        #removing last game
         corners['average_corners_pre_game'] = corners.groupby('team')['average_corners'].shift().fillna(0)
         
-        # Dodanie średniej liczby rzutów rożnych do oryginalnego DataFrame
+        #merging back to original dataframe
         df = df.merge(corners[['date', 'team', 'average_corners_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_corners_pre_game': 'home_team_average_corners_total_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(corners[['date', 'team', 'average_corners_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_corners_pre_game': 'away_team_average_corners_total_per_game_pre_game'}).drop('team', axis=1)
 
-    def add_average_corners_by_team_per_game_before_game(self):
+        return df
 
-        # Tworzenie DataFrame z liczbą rzutów rożnych zarówno w domu, jak i na wyjeździe
+    def add_average_corners_by_team_per_game_before_game(self, df):
+
+        #creating working dataframe with corners by team
         corners = pd.concat([
             df[['date', 'home_team_name', 'home_team_corner_count']].rename(columns={'home_team_name': 'team', 'home_team_corner_count': 'corners'}),
             df[['date', 'away_team_name', 'away_team_corner_count']].rename(columns={'away_team_name': 'team', 'away_team_corner_count': 'corners'})
         ])
 
-        # Sortowanie danych według daty, aby kumulatywne średnie były poprawne
+        #sorting data by date
         corners.sort_values('date', inplace=True)   
         
-        # Obliczanie sumy i liczby meczów
+        #counting number of games
         corners['cumulative_corners'] = corners.groupby('team')['corners'].cumsum()
         corners['games_played'] = corners.groupby('team').cumcount() + 1  # Dodajemy 1, bo cumcount zaczyna od 0
 
-        # Obliczanie średniej kumulatywnej
+        #calculating average cumulative
         corners['average_corners'] = corners['cumulative_corners'] / corners['games_played']
 
-        # Usuwamy ostatni mecz, aby uzyskać średnią przed bieżącym meczem
+        #removing last game
         corners['average_corners_pre_game'] = corners.groupby('team')['average_corners'].shift().fillna(0)
         
-        # Dodanie średniej liczby rzutów rożnych do oryginalnego DataFrame
+        #merging back to original dataframe
         df = df.merge(corners[['date', 'team', 'average_corners_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_corners_pre_game': 'home_team_average_corners_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(corners[['date', 'team', 'average_corners_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_corners_pre_game': 'away_team_average_corners_per_game_pre_game'}).drop('team', axis=1)
     
-    def add_average_yellow_cards_total_per_game_before_game(self):
+        return df
+    
+    def add_average_yellow_cards_total_per_game_before_game(self, df):
 
         # Tworzenie DataFrame z łączną liczbą żółtych kartek zarówno w domu, jak i na wyjeździe
         cards = pd.concat([
@@ -307,7 +331,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(cards[['date', 'team', 'average_yellow_cards_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_yellow_cards_pre_game': 'home_team_average_yellow_cards_total_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(cards[['date', 'team', 'average_yellow_cards_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_yellow_cards_pre_game': 'away_team_average_yellow_cards_total_per_game_pre_game'}).drop('team', axis=1)
 
-    def add_average_yellow_cards_by_team_per_game_before_game(self):
+        return df
+
+    def add_average_yellow_cards_by_team_per_game_before_game(self, df):
     
         # Tworzenie DataFrame z liczbą żółtych kartek dla gospodarzy i gości
         cards = pd.concat([
@@ -332,7 +358,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(cards[['date', 'team', 'average_yellow_cards_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_yellow_cards_pre_game': 'home_team_average_yellow_cards_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(cards[['date', 'team', 'average_yellow_cards_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_yellow_cards_pre_game': 'away_team_average_yellow_cards_per_game_pre_game'}).drop('team', axis=1)
 
-    def add_cumulative_red_cards_per_team_before_game(self):
+        return df
+
+    def add_cumulative_red_cards_by_team_before_game(self, df):
         df['home_team_received_red_card'] = df['home_team_red_cards'] > 0
         df['away_team_received_red_card'] = df['away_team_red_cards'] > 0
         
@@ -354,7 +382,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(red_cards_data[['date', 'team', 'games_with_red_cards_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'games_with_red_cards_pre_game': 'home_team_cumulative_red_cards_pre_game'}).drop('team', axis=1)
         df = df.merge(red_cards_data[['date', 'team', 'games_with_red_cards_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'games_with_red_cards_pre_game': 'away_team_cumulative_red_cards_pre_game'}).drop('team', axis=1)
 
-    def add_average_total_red_cards_per_game_before_game(self):
+        return df
+
+    def add_average_total_red_cards_per_game_before_game(self, df):
         df['total_red_cards_in_match'] = df['home_team_red_cards'] + df['away_team_red_cards']
         
         # Agregacja danych o łącznych czerwonych kartkach dla drużyny gospodarzy i gości
@@ -381,7 +411,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(total_red_cards_data[['date', 'team', 'average_total_red_cards_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_total_red_cards_per_game_pre_game': 'home_team_average_red_cards_total_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(total_red_cards_data[['date', 'team', 'average_total_red_cards_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_total_red_cards_per_game_pre_game': 'away_team_average_red_cards_total_per_game_pre_game'}).drop('team', axis=1)
 
-    def add_average_red_cards_per_team_per_game_before_game(self):
+        return df
+
+    def add_average_red_cards_by_team_per_game_before_game(self, df):
 
         # Tworzenie DataFrame z danymi dotyczącymi czerwonych kartek
         red_cards_data = pd.concat([
@@ -406,7 +438,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(red_cards_data[['date', 'team', 'average_red_cards_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_red_cards_per_game_pre_game': 'home_team_average_red_cards_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(red_cards_data[['date', 'team', 'average_red_cards_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_red_cards_per_game_pre_game': 'away_team_average_red_cards_per_game_pre_game'}).drop('team', axis=1)
 
-    def add_average_shots_per_game_before_game(self):
+        return df
+
+    def add_average_shots_per_game_before_game(self, df):
 
         # Załóżmy, że `df` to Twój DataFrame z danymi
         # Tworzenie DataFrame z danymi dotyczącymi strzałów
@@ -435,7 +469,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(shots_data[['date', 'team', 'average_shots_per_game_pre_game', 'average_shots_on_target_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_shots_per_game_pre_game': 'home_team_average_shots_per_game_pre_game', 'average_shots_on_target_per_game_pre_game': 'home_team_average_shots_on_target_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(shots_data[['date', 'team', 'average_shots_per_game_pre_game', 'average_shots_on_target_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_shots_per_game_pre_game': 'away_team_average_shots_per_game_pre_game', 'average_shots_on_target_per_game_pre_game': 'away_team_average_shots_on_target_per_game_pre_game'}).drop('team', axis=1)
 
-    def add_average_fouls_per_team_per_game_before_game(self):
+        return df
+
+    def add_average_fouls_by_team_per_game_before_game(self, df):
         # Tworzenie DataFrame z danymi dotyczącymi fauli
         fouls_data = pd.concat([
             df[['date', 'home_team_name', 'home_team_fouls']].rename(columns={'home_team_name': 'team', 'home_team_fouls': 'fouls'}),
@@ -459,7 +495,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(fouls_data[['date', 'team', 'average_fouls_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_fouls_per_game_pre_game': 'home_team_average_fouls_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(fouls_data[['date', 'team', 'average_fouls_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_fouls_per_game_pre_game': 'away_team_average_fouls_per_game_pre_game'}).drop('team', axis=1)
 
-    def add_average_fouls_total_per_game_before_game(self):
+        return df
+
+    def add_average_fouls_total_per_game_before_game(self, df):
         df['total_fouls'] = df['home_team_fouls'] + df['away_team_fouls']
         
         # Tworzenie DataFrame z danymi dotyczącymi łącznych fauli dla obu drużyn w meczu
@@ -486,7 +524,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(fouls_data[['date', 'team', 'average_total_fouls_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_total_fouls_per_game_pre_game': 'home_team_average_fouls_total_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(fouls_data[['date', 'team', 'average_total_fouls_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_total_fouls_per_game_pre_game': 'away_team_average_fouls_total_per_game_pre_game'}).drop('team', axis=1)
 
-    def add_average_ball_possession_per_game_before_game(self):
+        return df
+
+    def add_average_ball_possession_per_game_before_game(self, df):
         # Tworzenie DataFrame z danymi dotyczącymi posiadania piłki
         possession_data = pd.concat([
             df[['date', 'home_team_name', 'home_team_possession']].rename(columns={'home_team_name': 'team', 'home_team_possession': 'possession'}),
@@ -510,7 +550,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(possession_data[['date', 'team', 'average_possession_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_possession_per_game_pre_game': 'home_team_average_possession_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(possession_data[['date', 'team', 'average_possession_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_possession_per_game_pre_game': 'away_team_average_possession_per_game_pre_game'}).drop('team', axis=1)
 
-    def add_average_xg_per_game_before_game(self):
+        return df
+
+    def add_average_xg_per_game_before_game(self, df):
         # Tworzenie DataFrame z danymi dotyczącymi xG
         xg_data = pd.concat([
             df[['date', 'home_team_name', 'team_a_xg']].rename(columns={'home_team_name': 'team', 'team_a_xg': 'xg'}),
@@ -534,7 +576,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(xg_data[['date', 'team', 'average_xg_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_xg_per_game_pre_game': 'home_team_average_xg_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(xg_data[['date', 'team', 'average_xg_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_xg_per_game_pre_game': 'away_team_average_xg_per_game_pre_game'}).drop('team', axis=1)
     
-    def add_no_goals_scored_cumulative_before_game(self):
+        return df
+    
+    def add_no_goals_scored_cumulative_before_game(self, df):
 
         df['home_team_failed_to_score'] = df['home_team_goal_count'] == 0
         df['away_team_failed_to_score'] = df['away_team_goal_count'] == 0
@@ -557,7 +601,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(no_goals_data[['date', 'team', 'games_without_goals_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'games_without_goals_pre_game': 'home_team_games_without_goals_pre_game'}).drop('team', axis=1)
         df = df.merge(no_goals_data[['date', 'team', 'games_without_goals_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'games_without_goals_pre_game': 'away_team_games_without_goals_pre_game'}).drop('team', axis=1)
         
-    def add_btts_cumulative_before_game(self):
+        return df
+        
+    def add_btts_cumulative_before_game(self, df):
         df['both_teams_scored'] = (df['home_team_goal_count'] > 0) & (df['away_team_goal_count'] > 0)
         
         # Tworzenie DataFrame z danymi dotyczącymi, czy obie drużyny strzeliły
@@ -578,7 +624,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(scored_data[['date', 'team', 'cumulative_both_scored_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'cumulative_both_scored_pre_game': 'home_team_cumulative_btts_pre_game'}).drop('team', axis=1)
         df = df.merge(scored_data[['date', 'team', 'cumulative_both_scored_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'cumulative_both_scored_pre_game': 'away_team_cumulative_btts_pre_game'}).drop('team', axis=1)
 
-    def add_clean_sheets_cumulative_before_game(self):
+        return df
+
+    def add_clean_sheets_cumulative_before_game(self, df):
         df['home_clean_sheet'] = df['away_team_goal_count'] == 0
         df['away_clean_sheet'] = df['home_team_goal_count'] == 0
         
@@ -600,7 +648,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(clean_sheets_data[['date', 'team', 'cumulative_clean_sheets_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'cumulative_clean_sheets_pre_game': 'home_team_cumulative_clean_sheets_pre_game'}).drop('team', axis=1)
         df = df.merge(clean_sheets_data[['date', 'team', 'cumulative_clean_sheets_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'cumulative_clean_sheets_pre_game': 'away_team_cumulative_clean_sheets_pre_game'}).drop('team', axis=1)
 
-    def add_wins_losses_draws_before_game(self):
+        return df
+
+    def add_wins_losses_draws_before_game(self, df):
         
         df['home_win'] = df['home_team_goal_count'] > df['away_team_goal_count']
         df['away_win'] = df['home_team_goal_count'] < df['away_team_goal_count']
@@ -628,7 +678,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(results_data[['date', 'team', 'cumulative_wins_pre_game', 'cumulative_draws_pre_game', 'cumulative_losses_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'cumulative_wins_pre_game': 'home_team_cumulative_wins_pre_game', 'cumulative_draws_pre_game': 'home_team_cumulative_draws_pre_game', 'cumulative_losses_pre_game': 'home_team_cumulative_losses_pre_game'}).drop('team', axis=1)
         df = df.merge(results_data[['date', 'team', 'cumulative_wins_pre_game', 'cumulative_draws_pre_game', 'cumulative_losses_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'cumulative_wins_pre_game': 'away_team_cumulative_wins_pre_game', 'cumulative_draws_pre_game': 'away_team_cumulative_draws_pre_game', 'cumulative_losses_pre_game': 'away_team_cumulative_losses_pre_game'}).drop('team', axis=1)
 
-    def add_points_per_game_before_game(self):
+        return df
+
+    def add_points_per_game_before_game(self, df):
         
         df['home_win'] = df['home_team_goal_count'] > df['away_team_goal_count']
         df['away_win'] = df['home_team_goal_count'] < df['away_team_goal_count']
@@ -660,7 +712,9 @@ class FootballPredictorDataWrapper:
         df = df.merge(points_data[['date', 'team', 'average_points_per_game_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_points_per_game_pre_game': 'home_team_average_points_per_game_pre_game'}).drop('team', axis=1)
         df = df.merge(points_data[['date', 'team', 'average_points_per_game_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'average_points_per_game_pre_game': 'away_team_average_points_per_game_pre_game'}).drop('team', axis=1)
 
-    def add_form_in_last_5_games(self):
+        return df
+
+    def add_form_in_last_5_games(self, df):
         # Tworzenie flag dla wyników meczu
         df['home_win'] = df['home_team_goal_count'] > df['away_team_goal_count']
         df['away_win'] = df['home_team_goal_count'] < df['away_team_goal_count']
@@ -691,7 +745,12 @@ class FootballPredictorDataWrapper:
             'last_5_losses_away': 'away_team_losses_in_last_5_games'
         }, inplace=True)
         
-    def add_rolling_goals_scored_and_conceded_in_last_5_games(self):
+        df[['home_team_wins_in_last_5_games', 'home_team_draws_in_last_5_games', 'home_team_losses_in_last_5_games', 
+            'away_team_wins_in_last_5_games', 'away_team_draws_in_last_5_games', 'away_team_losses_in_last_5_games']].fillna(0, inplace=True)
+        
+        return df
+        
+    def add_rolling_goals_scored_and_conceded_in_last_5_games(self, df):
     
         # Dodanie kolumn z goli zdobytymi przez gospodarzy i gości oraz straconymi
         df['home_goals_scored'] = df['home_team_goal_count']
@@ -714,14 +773,14 @@ class FootballPredictorDataWrapper:
         goals_data['rolling_goals_conceded_pre_game'] = goals_data.groupby('team')['rolling_goals_conceded'].shift().fillna(0)
 
         # Mergowanie wyników z DataFrame głównym
-        df = df.merge(goals_data[['date', 'team', 'rolling_goals_scored_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_goals_scored_pre_game': 'home_team_average_goals_scored_in_last_5_games'}).drop('team', axis=1)
+        df = df.merge(goals_data[['date', 'team', 'rolling_goals_scored_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_goals_scored_pre_game': 'home_team_average_goals_scored_in_last_5_games'})
         df = df.merge(goals_data[['date', 'team', 'rolling_goals_scored_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_goals_scored_pre_game': 'away_team_average_goals_scored_in_last_5_games'}).drop('team', axis=1)
         df = df.merge(goals_data[['date', 'team', 'rolling_goals_conceded_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_goals_conceded_pre_game': 'home_team_average_goals_conceded_in_last_5_games'}).drop('team', axis=1)
         df = df.merge(goals_data[['date', 'team', 'rolling_goals_conceded_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_goals_conceded_pre_game': 'away_team_average_goals_conceded_in_last_5_games'}).drop('team', axis=1)
 
         return df
     
-    def add_rolling_corners_total_in_last_5_games(self):
+    def add_rolling_corners_total_in_last_5_games(self, df):
         # Dodanie kolumn z rzutami rożnymi wykonanymi przez gospodarzy i gości
         df['home_corners'] = df['home_team_corner_count']
         df['away_corners'] = df['away_team_corner_count']
@@ -753,7 +812,7 @@ class FootballPredictorDataWrapper:
 
         return df
     
-    def add_rolling_corners_by_team_in_last_5_games(self):
+    def add_rolling_corners_by_team_in_last_5_games(self, df):
         # Przygotowanie danych z rzutami rożnymi dla gospodarzy i gości
         df['home_corners'] = df['home_team_corner_count']
         df['away_corners'] = df['away_team_corner_count']
@@ -776,7 +835,7 @@ class FootballPredictorDataWrapper:
 
         return df
             
-    def add_rolling_cards_by_team_in_last_5_games(self):
+    def add_rolling_cards_by_team_in_last_5_games(self, df):
         # Dodanie kolumn z kartkami zdobytymi przez gospodarzy i gości
         df['home_yellow_cards'] = df['home_team_yellow_cards']
         df['away_yellow_cards'] = df['away_team_yellow_cards']
@@ -805,7 +864,7 @@ class FootballPredictorDataWrapper:
     
         return df
     
-    def add_rolling_ball_possession_by_team_in_last_5_games(self):
+    def add_rolling_ball_possession_by_team_in_last_5_games(self, df):
         # Dodanie kolumn z posiadaniem piłki przez gospodarzy i gości
         df['home_possession'] = df['home_team_possession']
         df['away_possession'] = df['away_team_possession']
@@ -828,7 +887,7 @@ class FootballPredictorDataWrapper:
     
         return df
     
-    def add_rolling_xg_by_team_in_last_5_games(self):
+    def add_rolling_xg_by_team_in_last_5_games(self, df):
         # Dodanie kolumn z expected goals (xG) zdobytymi przez gospodarzy i gości
         df['home_xg'] = df['team_a_xg']
         df['away_xg'] = df['team_b_xg']
@@ -851,7 +910,7 @@ class FootballPredictorDataWrapper:
 
         return df
     
-    def add_rolling_shots_by_team_in_last_5_games(self):
+    def add_rolling_shots_by_team_in_last_5_games(self, df):
         # Dodanie kolumn ze strzałami i strzałami celnymi wykonanymi przez gospodarzy i gości
         df['home_shots'] = df['home_team_shots']
         df['away_shots'] = df['away_team_shots']
@@ -880,7 +939,7 @@ class FootballPredictorDataWrapper:
 
         return df
     
-    def add_rolling_fouls_total_in_last_5_games(self):
+    def add_rolling_fouls_total_in_last_5_games(self, df):
         # Dodanie kolumn z faulami wykonanymi przez gospodarzy i gości
         df['home_fouls'] = df['home_team_fouls']
         df['away_fouls'] = df['away_team_fouls']
@@ -912,7 +971,7 @@ class FootballPredictorDataWrapper:
 
         return df
 
-    def add_rolling_average_fouls(df):
+    def add_rolling_fouls_by_team_in_last_5_games(self, df):
         # Dodanie kolumn z faulami wykonanymi przez gospodarzy i gości
         df['home_fouls'] = df['home_team_fouls']
         df['away_fouls'] = df['away_team_fouls']
@@ -936,5 +995,67 @@ class FootballPredictorDataWrapper:
         return df
 
     def remove_working_variables(self):
-        # self.data.drop([''], axis=1, inplace=True)
-        pass
+        self.data.drop(['Pre-Match PPG (Home)', 'Pre-Match PPG (Away)', 'Home Team Pre-Match xG', 'Away Team Pre-Match xG',
+                        'average_goals_per_match_pre_match', 'home_goals_scored', 'away_goals_scored', 'home_goals_conceded',
+                        'away_goals_conceded', 'home_team_second_half_goals', 'away_team_second_half_goals', 'home_goals_conceded_first_half',
+                        'away_goals_conceded_first_half', 'home_goals_conceded_second_half', 'away_goals_conceded_second_half',
+                        'home_first_half_goals', 'home_second_half_goals', 'away_first_half_goals', 'away_second_half_goals',
+                        'home_team_received_red_card', 'away_team_received_red_card', 'total_red_cards_in_match', 'total_fouls',
+                        'home_team_failed_to_score', 'away_team_failed_to_score', 'both_teams_scored', 'home_clean_sheet',
+                        'away_clean_sheet', 'home_win', 'away_win', 'draw', 'home_points', 'away_points', 'team_x', 'team_away',
+                        'team_y', 'home_corners', 'away_corners', 'total_corners', 'home_yellow_cards', 'away_yellow_cards',
+                        'home_red_cards', 'away_red_cards', 'home_possession', 'away_possession', 'home_xg', 'away_xg', 'home_shots',
+                        'away_shots', 'home_shots_on_target', 'away_shots_on_target', 'home_fouls', 'away_fouls', 'home_team_rolling_fouls_pre_game',
+                        'away_team_rolling_fouls_pre_game'], 
+                       axis=1, inplace=True)
+        
+        return self.data
+
+    def run(self):
+        self.data = self.clean_data(self.data)
+        self.data = self.add_cumulative_goals_scored_before_game(self.data)
+        self.data = self.add_cumulative_goals_conceded_before_game(self.data)
+        self.data = self.add_average_goals_scored_and_conceded_per_game_before_game(self.data)
+        self.data = self.add_average_goals_scored_in_first_and_second_half_per_game_before_game(self.data)
+        self.data = self.add_average_goals_conceded_in_first_and_second_half_per_game_before_game(self.data)
+        self.data = self.add_average_goals_total_in_first_and_second_half_per_game_before_game(self.data)
+        self.data = self.add_average_total_corners_per_game_before_game(self.data)
+        self.data = self.add_average_corners_by_team_per_game_before_game(self.data)
+        self.data = self.add_average_yellow_cards_total_per_game_before_game(self.data)
+        self.data = self.add_average_yellow_cards_by_team_per_game_before_game(self.data)
+        self.data = self.add_cumulative_red_cards_by_team_before_game(self.data)
+        self.data = self.add_average_total_red_cards_per_game_before_game(self.data)
+        self.data = self.add_average_red_cards_by_team_per_game_before_game(self.data)
+        self.data = self.add_average_shots_per_game_before_game(self.data)
+        self.data = self.add_average_fouls_by_team_per_game_before_game(self.data)
+        self.data = self.add_average_fouls_total_per_game_before_game(self.data)
+        self.data = self.add_average_ball_possession_per_game_before_game(self.data)
+        self.data = self.add_average_xg_per_game_before_game(self.data)
+        self.data = self.add_no_goals_scored_cumulative_before_game(self.data)
+        self.data = self.add_btts_cumulative_before_game(self.data)
+        self.data = self.add_clean_sheets_cumulative_before_game(self.data)
+        self.data = self.add_wins_losses_draws_before_game(self.data)
+        self.data = self.add_points_per_game_before_game(self.data)
+        self.data = self.add_form_in_last_5_games(self.data)
+        self.data = self.add_rolling_goals_scored_and_conceded_in_last_5_games(self.data)
+        self.data = self.add_rolling_corners_total_in_last_5_games(self.data)
+        self.data = self.add_rolling_corners_by_team_in_last_5_games(self.data)
+        self.data = self.add_rolling_cards_by_team_in_last_5_games(self.data)
+        self.data = self.add_rolling_ball_possession_by_team_in_last_5_games(self.data)
+        self.data = self.add_rolling_xg_by_team_in_last_5_games(self.data)
+        self.data = self.add_rolling_shots_by_team_in_last_5_games(self.data)
+        self.data = self.add_rolling_fouls_total_in_last_5_games(self.data)
+        self.data = self.add_rolling_fouls_by_team_in_last_5_games(self.data)
+        
+        self.data = self.remove_working_variables()
+        
+        return self.data
+    
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Prepare data for football analytics.')
+    parser.add_argument('data_filepath', type=str, help='Path to the CSV file containing the data.')
+    args = parser.parse_args()
+    data = pd.read_csv(args.data_filepath)
+    wrapper = FootballPredictorDataWrapper(data)
+    data_processed = wrapper.run()
+    data_processed.to_csv('test.csv', index=False)
