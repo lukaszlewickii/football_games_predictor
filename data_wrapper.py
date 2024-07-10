@@ -47,6 +47,8 @@ class FootballPredictorDataWrapper:
         
         df['season'] = df['date'].apply(assign_season)
         
+        df.sort_values(by='date', inplace=True)
+        
         return df
     
     def add_cumulative_goals_scored_before_game(self, df):
@@ -745,8 +747,11 @@ class FootballPredictorDataWrapper:
             'last_5_losses_away': 'away_team_losses_in_last_5_games'
         }, inplace=True)
         
+        
         df[['home_team_wins_in_last_5_games', 'home_team_draws_in_last_5_games', 'home_team_losses_in_last_5_games', 
-            'away_team_wins_in_last_5_games', 'away_team_draws_in_last_5_games', 'away_team_losses_in_last_5_games']].fillna(0, inplace=True)
+            'away_team_wins_in_last_5_games', 'away_team_draws_in_last_5_games', 'away_team_losses_in_last_5_games']] = \
+        df[['home_team_wins_in_last_5_games', 'home_team_draws_in_last_5_games', 'home_team_losses_in_last_5_games', 
+            'away_team_wins_in_last_5_games', 'away_team_draws_in_last_5_games', 'away_team_losses_in_last_5_games']].fillna(0)
         
         return df
         
@@ -782,33 +787,24 @@ class FootballPredictorDataWrapper:
     
     def add_rolling_corners_total_in_last_5_games(self, df):
         # Dodanie kolumn z rzutami rożnymi wykonanymi przez gospodarzy i gości
-        df['home_corners'] = df['home_team_corner_count']
-        df['away_corners'] = df['away_team_corner_count']
+        df['total_corners'] = df['home_team_corner_count'] + df['away_team_corner_count']
 
-        # Tworzenie DataFrame z danymi dotyczącymi rzutów rożnych
-        corners_data = pd.concat([
-            df[['date', 'home_team_name', 'home_corners']].rename(columns={'home_team_name': 'team', 'home_corners': 'corners'}),
-            df[['date', 'away_team_name', 'away_corners']].rename(columns={'away_team_name': 'team', 'away_corners': 'corners'})
-        ]).sort_values('date')
+        # Tworzenie osobnych DataFrame'ów dla każdej drużyny jako gospodarza i gościa z datą i łączną liczbą rożnych
+        home_corners = df[['date', 'home_team_name', 'total_corners']].rename(columns={'home_team_name': 'team'})
+        away_corners = df[['date', 'away_team_name', 'total_corners']].rename(columns={'away_team_name': 'team'})
 
-        # Obliczanie średniej kroczącej z 5 ostatnich meczów
-        corners_data['rolling_corners'] = corners_data.groupby('team')['corners'].transform(lambda x: x.rolling(window=5, min_periods=1).mean())
+        # Łączenie danych gospodarzy i gości w jeden DataFrame
+        corners_data = pd.concat([home_corners, away_corners]).sort_values(by='date')
+
+        # Obliczanie średniej kroczącej z ostatnich 5 meczów
+        corners_data['rolling_corners'] = corners_data.groupby('team')['total_corners'].transform(lambda x: x.rolling(window=5, min_periods=1).mean())
 
         # Przesunięcie wyników o jeden wiersz wstecz, aby nie uwzględniać bieżącego meczu
         corners_data['rolling_corners_pre_game'] = corners_data.groupby('team')['rolling_corners'].shift().fillna(0)
 
-        # Mergowanie wyników z DataFrame głównym
-        df = df.merge(corners_data[['date', 'team', 'rolling_corners_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_corners_pre_game': 'home_team_rolling_corners_pre_game'}).drop('team', axis=1)
-        df = df.merge(corners_data[['date', 'team', 'rolling_corners_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_corners_pre_game': 'away_team_rolling_corners_pre_game'}).drop('team', axis=1)
-
-        # Obliczanie całkowitej liczby rzutów rożnych w meczach danej drużyny
-        df['total_corners'] = df['home_corners'] + df['away_corners']
-        total_corners_data = df[['date', 'home_team_name', 'away_team_name', 'total_corners']].melt(id_vars=['date', 'total_corners'], value_vars=['home_team_name', 'away_team_name'], var_name='role', value_name='team')
-        total_corners_data['rolling_total_corners'] = total_corners_data.groupby('team')['total_corners'].transform(lambda x: x.rolling(window=5, min_periods=1).mean())
-        total_corners_data['rolling_total_corners_pre_game'] = total_corners_data.groupby('team')['rolling_total_corners'].shift().fillna(0)
-
-        df = df.merge(total_corners_data[['date', 'team', 'rolling_total_corners_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_total_corners_pre_game': 'average_total_corners_in_home_team_games_in_last_5_games'}).drop('team', axis=1)
-        df = df.merge(total_corners_data[['date', 'team', 'rolling_total_corners_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_total_corners_pre_game': 'average_total_corners_in_away_team_games_in_last_5_games'}).drop('team', axis=1)
+        # Mergowanie wyników z DataFrame głównym dla drużyn gospodarza i gościa
+        df = df.merge(corners_data[['date', 'team', 'rolling_corners_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_corners_pre_game': 'average_total_corners_in_home_team_games_in_last_5_games'}).drop('team', axis=1)
+        df = df.merge(corners_data[['date', 'team', 'rolling_corners_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_corners_pre_game': 'average_total_corners_in_away_team_games_in_last_5_games'}).drop('team', axis=1)
 
         return df
     
@@ -940,34 +936,25 @@ class FootballPredictorDataWrapper:
         return df
     
     def add_rolling_fouls_total_in_last_5_games(self, df):
-        # Dodanie kolumn z faulami wykonanymi przez gospodarzy i gości
-        df['home_fouls'] = df['home_team_fouls']
-        df['away_fouls'] = df['away_team_fouls']
+        # Dodanie kolumny z łączną liczbą fauli w każdym meczu
+        df['total_fouls'] = df['home_team_fouls'] + df['away_team_fouls']
 
-        # Tworzenie DataFrame z danymi dotyczącymi fauli
-        fouls_data = pd.concat([
-            df[['date', 'home_team_name', 'home_fouls']].rename(columns={'home_team_name': 'team', 'home_fouls': 'fouls'}),
-            df[['date', 'away_team_name', 'away_fouls']].rename(columns={'away_team_name': 'team', 'away_fouls': 'fouls'})
-        ]).sort_values('date')
+        # Tworzenie osobnych DataFrame'ów dla każdej drużyny jako gospodarza i gościa z datą i łączną liczbą fauli
+        home_fouls = df[['date', 'home_team_name', 'total_fouls']].rename(columns={'home_team_name': 'team'})
+        away_fouls = df[['date', 'away_team_name', 'total_fouls']].rename(columns={'away_team_name': 'team'})
 
-        # Obliczanie średniej kroczącej z 5 ostatnich meczów dla fauli
-        fouls_data['rolling_fouls'] = fouls_data.groupby('team')['fouls'].transform(lambda x: x.rolling(window=5, min_periods=1).mean())
+        # Łączenie danych gospodarzy i gości w jeden DataFrame
+        fouls_data = pd.concat([home_fouls, away_fouls]).sort_values(by='date')
+
+        # Obliczanie średniej kroczącej z ostatnich 5 meczów
+        fouls_data['rolling_fouls'] = fouls_data.groupby('team')['total_fouls'].transform(lambda x: x.rolling(window=5, min_periods=1).mean())
 
         # Przesunięcie wyników o jeden wiersz wstecz, aby nie uwzględniać bieżącego meczu
         fouls_data['rolling_fouls_pre_game'] = fouls_data.groupby('team')['rolling_fouls'].shift().fillna(0)
 
-        # Mergowanie wyników z DataFrame głównym
-        df = df.merge(fouls_data[['date', 'team', 'rolling_fouls_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_fouls_pre_game': 'home_team_rolling_fouls_pre_game'}).drop('team', axis=1)
-        df = df.merge(fouls_data[['date', 'team', 'rolling_fouls_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_fouls_pre_game': 'away_team_rolling_fouls_pre_game'}).drop('team', axis=1)
-
-        # Obliczanie całkowitej liczby fauli w meczach danej drużyny
-        df['total_fouls'] = df['home_fouls'] + df['away_fouls']
-        total_fouls_data = df[['date', 'home_team_name', 'away_team_name', 'total_fouls']].melt(id_vars=['date', 'total_fouls'], value_vars=['home_team_name', 'away_team_name'], var_name='role', value_name='team')
-        total_fouls_data['rolling_total_fouls'] = total_fouls_data.groupby('team')['total_fouls'].transform(lambda x: x.rolling(window=5, min_periods=1).mean())
-        total_fouls_data['rolling_total_fouls_pre_game'] = total_fouls_data.groupby('team')['rolling_total_fouls'].shift().fillna(0)
-
-        df = df.merge(total_fouls_data[['date', 'team', 'rolling_total_fouls_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_total_fouls_pre_game': 'average_fouls_total_in_home_team_games_in_last_5_games'}).drop('team', axis=1)
-        df = df.merge(total_fouls_data[['date', 'team', 'rolling_total_fouls_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_total_fouls_pre_game': 'average_fouls_total_in_away_team_games_in_last_5_games'}).drop('team', axis=1)
+        # Mergowanie wyników z DataFrame głównym dla drużyn gospodarza i gościa
+        df = df.merge(fouls_data[['date', 'team', 'rolling_fouls_pre_game']], left_on=['date', 'home_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_fouls_pre_game': 'average_total_fouls_in_home_team_games_in_last_5_games'}).drop('team', axis=1)
+        df = df.merge(fouls_data[['date', 'team', 'rolling_fouls_pre_game']], left_on=['date', 'away_team_name'], right_on=['date', 'team'], how='left').rename(columns={'rolling_fouls_pre_game': 'average_total_fouls_in_away_team_games_in_last_5_games'}).drop('team', axis=1)
 
         return df
 
@@ -1005,8 +992,7 @@ class FootballPredictorDataWrapper:
                         'away_clean_sheet', 'home_win', 'away_win', 'draw', 'home_points', 'away_points', 'team_x', 'team_away',
                         'team_y', 'home_corners', 'away_corners', 'total_corners', 'home_yellow_cards', 'away_yellow_cards',
                         'home_red_cards', 'away_red_cards', 'home_possession', 'away_possession', 'home_xg', 'away_xg', 'home_shots',
-                        'away_shots', 'home_shots_on_target', 'away_shots_on_target', 'home_fouls', 'away_fouls', 'home_team_rolling_fouls_pre_game',
-                        'away_team_rolling_fouls_pre_game'], 
+                        'away_shots', 'home_shots_on_target', 'away_shots_on_target', 'home_fouls', 'away_fouls'], 
                        axis=1, inplace=True)
         
         return self.data
