@@ -1,3 +1,4 @@
 data/
 modelling_data/
 finetuning_data/
+catboost_info/
