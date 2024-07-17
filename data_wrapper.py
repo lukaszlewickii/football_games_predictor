@@ -8,7 +8,11 @@ class FootballPredictorDataWrapper:
     
     def clean_data(self, df):
         #transforming date variable
-        df['date_GMT'] = pd.to_datetime(df['date_GMT'])
+        try:
+            df['date_GMT'] = pd.to_datetime(df['date_GMT'])
+        except ValueError:
+            df['date_GMT'] = pd.to_datetime(df['date_GMT'], format='%b %d %Y - %I:%M%p', errors='raise')
+                
         df['date'] = pd.to_datetime(df['date_GMT'].dt.date)
         df['time'] = df['date_GMT'].dt.time
         
@@ -1036,6 +1040,151 @@ class FootballPredictorDataWrapper:
         self.data = self.remove_working_variables()
         
         return self.data
+    
+#Methods below are for adding h2h stats after concatenation data from different seasons
+    
+def add_h2h_results(df):
+    df['home_win'] = (df['home_team_goal_count'] > df['away_team_goal_count']).astype(int)
+    df['away_win'] = (df['home_team_goal_count'] < df['away_team_goal_count']).astype(int)
+    df['draw'] = (df['home_team_goal_count'] == df['away_team_goal_count']).astype(int)
+    
+    # Tworzenie DataFrame z wynikami meczów zarówno w domu, jak i na wyjeździe
+    results = pd.concat([
+        df[['date', 'home_team_name', 'away_team_name', 'home_win', 'away_win', 'draw']].rename(columns={'home_team_name': 'team_home', 'away_team_name': 'team_away'}),
+        df[['date', 'away_team_name', 'home_team_name', 'away_win', 'home_win', 'draw']].rename(columns={'away_team_name': 'team_home', 'home_team_name': 'team_away', 'home_win': 'away_win', 'away_win': 'home_win'})
+    ])
+
+    # Sortowanie danych według daty
+    results.sort_values('date', inplace=True)
+
+    # Obliczanie kumulatywnych wyników dla każdego zespołu
+    results['cumulative_home_wins'] = results.groupby(['team_home', 'team_away'])['home_win'].cumsum() - results['home_win']
+    results['cumulative_away_wins'] = results.groupby(['team_home', 'team_away'])['away_win'].cumsum() - results['away_win']
+    results['cumulative_draws'] = results.groupby(['team_home', 'team_away'])['draw'].cumsum() - results['draw']
+    
+    # Łączenie z oryginalnym DataFrame, uwzględniając odpowiednie drużyny i daty
+    df = df.merge(results[['date', 'team_home', 'team_away', 'cumulative_home_wins', 'cumulative_away_wins', 'cumulative_draws']], left_on=['date', 'home_team_name', 'away_team_name'], right_on=['date', 'team_home', 'team_away'], how='left').rename(columns={
+        'cumulative_home_wins': 'h2h_home_team_wins_pre_game',
+        'cumulative_away_wins': 'h2h_away_team_wins_pre_game',
+        'cumulative_draws': 'h2h_draws_pre_game'
+    })
+    
+    df.drop(['team_home', 'team_away', 'home_win', 'away_win', 'draw'], axis=1, inplace=True)
+    
+    return df
+
+def add_h2h_goals(df):
+    # Tworzenie DataFrame z bramkami zdobywanymi zarówno w domu, jak i na wyjeździe
+    goals = pd.concat([
+        df[['date', 'home_team_name', 'away_team_name', 'home_team_goal_count', 'away_team_goal_count']].rename(columns={'home_team_name': 'team_home', 'away_team_name': 'team_away', 'home_team_goal_count': 'goals_home', 'away_team_goal_count': 'goals_away'}),
+        df[['date', 'away_team_name', 'home_team_name', 'away_team_goal_count', 'home_team_goal_count']].rename(columns={'away_team_name': 'team_home', 'home_team_name': 'team_away', 'away_team_goal_count': 'goals_home', 'home_team_goal_count': 'goals_away'})
+    ])
+
+    # Sortowanie danych według daty, aby kumulatywne sumy były poprawne
+    goals.sort_values('date', inplace=True)
+
+    # Obliczanie sumy bramek w meczach bezpośrednich
+    goals['total_goals'] = goals['goals_home'] + goals['goals_away']
+
+    # Obliczanie kumulatywnej liczby bramek
+    goals['cumulative_goals'] = goals.groupby(['team_home', 'team_away'])['total_goals'].cumsum()
+
+    # Usunięcie bieżących bramek z kumulatywnej sumy, aby liczyć tylko bramki przed bieżącym meczem
+    goals['cumulative_goals'] -= goals['total_goals']
+
+    # Obliczenie liczby meczów dla średniej
+    goals['matches'] = goals.groupby(['team_home', 'team_away']).cumcount()
+
+    # Obliczenie średniej liczby bramek przed bieżącym meczem
+    goals['average_goals_h2h'] = goals['cumulative_goals'] / goals['matches']
+    goals['average_goals_h2h'].fillna(0, inplace=True)  # Ustawiamy 0, gdy nie ma wcześniejszych meczów
+
+    # Powrót do oryginalnego DataFrame z wynikami meczów
+    df = df.merge(goals[['date', 'team_home', 'team_away', 'average_goals_h2h']], left_on=['date', 'home_team_name', 'away_team_name'], right_on=['date', 'team_home', 'team_away'], how='left')
+    
+    # df.drop(['team_home', 'team_away', 'home_win', 'away_win', 'draw'], axis=1, inplace=True)
+    
+    return df
+
+def add_h2h_stats(df):
+    # Tworzenie DataFrame z kartkami i rzutami rożnymi zdobywanymi zarówno w domu, jak i na wyjeździe
+    cards_corners = pd.concat([
+        df[['date', 'home_team_name', 'away_team_name', 'home_team_yellow_cards', 'away_team_yellow_cards', 'home_team_red_cards', 'away_team_red_cards', 'home_team_corner_count', 'away_team_corner_count']].rename(columns={
+            'home_team_name': 'team_home', 'away_team_name': 'team_away',
+            'home_team_yellow_cards': 'yellow_cards_home', 'away_team_yellow_cards': 'yellow_cards_away',
+            'home_team_red_cards': 'red_cards_home', 'away_team_red_cards': 'red_cards_away',
+            'home_team_corner_count': 'corners_home', 'away_team_corner_count': 'corners_away'
+        }),
+        df[['date', 'away_team_name', 'home_team_name', 'away_team_yellow_cards', 'home_team_yellow_cards', 'away_team_red_cards', 'home_team_red_cards', 'away_team_corner_count', 'home_team_corner_count']].rename(columns={
+            'away_team_name': 'team_home', 'home_team_name': 'team_away',
+            'away_team_yellow_cards': 'yellow_cards_home', 'home_team_yellow_cards': 'yellow_cards_away',
+            'away_team_red_cards': 'red_cards_home', 'home_team_red_cards': 'red_cards_away',
+            'away_team_corner_count': 'corners_home', 'home_team_corner_count': 'corners_away'
+        })
+    ])
+
+    # Dodaj kolumny do obliczeń statystyk
+    cards_corners['total_yellow_cards'] = cards_corners['yellow_cards_home'] + cards_corners['yellow_cards_away']
+    cards_corners['total_red_cards'] = cards_corners['red_cards_home'] + cards_corners['red_cards_away']
+    cards_corners['total_corners'] = cards_corners['corners_home'] + cards_corners['corners_away']
+
+    # Sortowanie danych według daty
+    cards_corners.sort_values('date', inplace=True)
+
+    # Obliczanie kumulatywnych sum dla każdej kategorii
+    cards_corners['cumulative_yellow_cards'] = cards_corners.groupby(['team_home', 'team_away'])['total_yellow_cards'].cumsum() - cards_corners['total_yellow_cards']
+    cards_corners['cumulative_red_cards'] = cards_corners.groupby(['team_home', 'team_away'])['total_red_cards'].cumsum() - cards_corners['total_red_cards']
+    cards_corners['cumulative_corners'] = cards_corners.groupby(['team_home', 'team_away'])['total_corners'].cumsum() - cards_corners['total_corners']
+
+    # Liczenie meczów dla średnich
+    cards_corners['matches'] = cards_corners.groupby(['team_home', 'team_away']).cumcount() + 1
+
+    # Obliczenie średnich przed bieżącym meczem
+    cards_corners['average_yellow_cards_h2h'] = cards_corners['cumulative_yellow_cards'] / (cards_corners['matches'] - 1)
+    cards_corners['average_red_cards_h2h'] = cards_corners['cumulative_red_cards'] / (cards_corners['matches'] - 1)
+    cards_corners['average_corners_h2h'] = cards_corners['cumulative_corners'] / (cards_corners['matches'] - 1)
+
+    cards_corners.fillna(0, inplace=True)  # Ustawiamy 0, gdy nie ma wcześniejszych meczów
+
+    df = df.merge(cards_corners[['date', 'team_home', 'team_away', 'average_yellow_cards_h2h', 'average_red_cards_h2h', 'average_corners_h2h']], left_on=['date', 'home_team_name', 'away_team_name'], right_on=['date', 'team_home', 'team_away'], how='left')
+    
+    return df
+
+
+#this method was prepared for whole dataset with every season and every league
+def add_average_odds_per_game_before_game(df):
+    # Tworzenie DataFrame z danymi dotyczącymi kursów
+    odds_data = pd.concat([
+        df[['date', 'season', 'league', 'home_team_name', 'odds_ft_home_team_win', 'odds_ft_draw']].rename(columns={'home_team_name': 'team', 'odds_ft_home_team_win': 'home_win_odds', 'odds_ft_draw': 'draw_odds'}),
+        df[['date', 'season', 'league', 'away_team_name', 'odds_ft_away_team_win', 'odds_ft_draw']].rename(columns={'away_team_name': 'team', 'odds_ft_away_team_win': 'away_win_odds', 'odds_ft_draw': 'draw_odds'})
+    ])
+
+    # Sortowanie danych według sezonu, ligi, drużyny i daty
+    odds_data.sort_values(by=['season', 'league', 'team', 'date'], inplace=True)
+
+    # Obliczanie kumulatywnych sum kursów
+    odds_data['cumulative_win_odds'] = odds_data.groupby(['season', 'league', 'team'])['home_win_odds'].cumsum()
+    odds_data['cumulative_draw_odds'] = odds_data.groupby(['season', 'league', 'team'])['draw_odds'].cumsum()
+
+    # Liczenie liczby meczów dla każdej drużyny w danym sezonie i lidze
+    odds_data['games_played'] = odds_data.groupby(['season', 'league', 'team']).cumcount() + 1
+
+    # Obliczanie średniej kursów na mecz
+    odds_data['average_win_odds_per_game'] = odds_data['cumulative_win_odds'] / odds_data['games_played']
+    odds_data['average_draw_odds_per_game'] = odds_data['cumulative_draw_odds'] / odds_data['games_played']
+
+    # Usuwanie danych z ostatniego meczu (przesunięcie danych)
+    odds_data['average_win_odds_per_game_pre_game'] = odds_data.groupby(['season', 'league', 'team'])['average_win_odds_per_game'].shift().fillna(0)
+    odds_data['average_draw_odds_per_game_pre_game'] = odds_data.groupby(['season', 'league', 'team'])['average_draw_odds_per_game'].shift().fillna(0)
+
+    # Mergowanie danych z powrotem do głównego DataFrame
+    merge_keys = ['date', 'season', 'league', 'team']
+    df = df.merge(odds_data[merge_keys + ['average_win_odds_per_game_pre_game']], left_on=['date', 'season', 'league', 'home_team_name'], right_on=merge_keys, how='left').rename(columns={'average_win_odds_per_game_pre_game': 'home_team_average_win_odds_pre_game'}).drop('team', axis=1)
+    df = df.merge(odds_data[merge_keys + ['average_draw_odds_per_game_pre_game']], left_on=['date', 'season', 'league', 'home_team_name'], right_on=merge_keys, how='left').rename(columns={'average_draw_odds_per_game_pre_game': 'home_team_average_draw_odds_pre_game'}).drop('team', axis=1)
+    df = df.merge(odds_data[merge_keys + ['average_win_odds_per_game_pre_game']], left_on=['date', 'season', 'league', 'away_team_name'], right_on=merge_keys, how='left').rename(columns={'average_win_odds_per_game_pre_game': 'away_team_average_win_odds_pre_game'}).drop('team', axis=1)
+    df = df.merge(odds_data[merge_keys + ['average_draw_odds_per_game_pre_game']], left_on=['date', 'season', 'league', 'away_team_name'], right_on=merge_keys, how='left').rename(columns={'average_draw_odds_per_game_pre_game': 'away_team_average_draw_odds_pre_game'}).drop('team', axis=1)
+
+    return df
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Prepare data for football analytics.')
