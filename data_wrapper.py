@@ -1155,15 +1155,15 @@ def add_h2h_stats(df):
 def add_average_odds_per_game_before_game(df):
     # Tworzenie DataFrame z danymi dotyczącymi kursów
     odds_data = pd.concat([
-        df[['date', 'season', 'league', 'home_team_name', 'odds_ft_home_team_win', 'odds_ft_draw']].rename(columns={'home_team_name': 'team', 'odds_ft_home_team_win': 'home_win_odds', 'odds_ft_draw': 'draw_odds'}),
-        df[['date', 'season', 'league', 'away_team_name', 'odds_ft_away_team_win', 'odds_ft_draw']].rename(columns={'away_team_name': 'team', 'odds_ft_away_team_win': 'away_win_odds', 'odds_ft_draw': 'draw_odds'})
+        df[['date', 'season', 'league', 'home_team_name', 'odds_ft_home_team_win', 'odds_ft_draw']].rename(columns={'home_team_name': 'team', 'odds_ft_home_team_win': 'win_odds', 'odds_ft_draw': 'draw_odds'}),
+        df[['date', 'season', 'league', 'away_team_name', 'odds_ft_away_team_win', 'odds_ft_draw']].rename(columns={'away_team_name': 'team', 'odds_ft_away_team_win': 'win_odds', 'odds_ft_draw': 'draw_odds'})
     ])
 
-    # Sortowanie danych według sezonu, ligi, drużyny i daty
-    odds_data.sort_values(by=['season', 'league', 'team', 'date'], inplace=True)
+    # Sortowanie danych według daty, sezonu, ligi i drużyny
+    odds_data.sort_values(['date', 'season', 'league', 'team'], inplace=True)
 
-    # Obliczanie kumulatywnych sum kursów
-    odds_data['cumulative_win_odds'] = odds_data.groupby(['season', 'league', 'team'])['home_win_odds'].cumsum()
+    # Obliczanie kumulatywnych sum kursów z podziałem na sezon, ligę i drużynę
+    odds_data['cumulative_win_odds'] = odds_data.groupby(['season', 'league', 'team'])['win_odds'].cumsum()
     odds_data['cumulative_draw_odds'] = odds_data.groupby(['season', 'league', 'team'])['draw_odds'].cumsum()
 
     # Liczenie liczby meczów dla każdej drużyny w danym sezonie i lidze
@@ -1178,14 +1178,14 @@ def add_average_odds_per_game_before_game(df):
     odds_data['average_draw_odds_per_game_pre_game'] = odds_data.groupby(['season', 'league', 'team'])['average_draw_odds_per_game'].shift().fillna(0)
 
     # Mergowanie danych z powrotem do głównego DataFrame
-    merge_keys = ['date', 'season', 'league', 'team']
-    df = df.merge(odds_data[merge_keys + ['average_win_odds_per_game_pre_game']], left_on=['date', 'season', 'league', 'home_team_name'], right_on=merge_keys, how='left').rename(columns={'average_win_odds_per_game_pre_game': 'home_team_average_win_odds_pre_game'}).drop('team', axis=1)
-    df = df.merge(odds_data[merge_keys + ['average_draw_odds_per_game_pre_game']], left_on=['date', 'season', 'league', 'home_team_name'], right_on=merge_keys, how='left').rename(columns={'average_draw_odds_per_game_pre_game': 'home_team_average_draw_odds_pre_game'}).drop('team', axis=1)
-    df = df.merge(odds_data[merge_keys + ['average_win_odds_per_game_pre_game']], left_on=['date', 'season', 'league', 'away_team_name'], right_on=merge_keys, how='left').rename(columns={'average_win_odds_per_game_pre_game': 'away_team_average_win_odds_pre_game'}).drop('team', axis=1)
-    df = df.merge(odds_data[merge_keys + ['average_draw_odds_per_game_pre_game']], left_on=['date', 'season', 'league', 'away_team_name'], right_on=merge_keys, how='left').rename(columns={'average_draw_odds_per_game_pre_game': 'away_team_average_draw_odds_pre_game'}).drop('team', axis=1)
+    df = df.merge(odds_data[['date', 'season', 'league', 'team', 'average_win_odds_per_game_pre_game']], left_on=['date', 'season', 'league', 'home_team_name'], right_on=['date', 'season', 'league', 'team'], how='left').rename(columns={'average_win_odds_per_game_pre_game': 'home_team_average_win_odds_pre_game'}).drop('team', axis=1)
+    df = df.merge(odds_data[['date', 'season', 'league', 'team', 'average_draw_odds_per_game_pre_game']], left_on=['date', 'season', 'league', 'home_team_name'], right_on=['date', 'season', 'league', 'team'], how='left').rename(columns={'average_draw_odds_per_game_pre_game': 'home_team_average_draw_odds_pre_game'}).drop('team', axis=1)
+    df = df.merge(odds_data[['date', 'season', 'league', 'team', 'average_win_odds_per_game_pre_game']], left_on=['date', 'season', 'league', 'away_team_name'], right_on=['date', 'season', 'league', 'team'], how='left').rename(columns={'average_win_odds_per_game_pre_game': 'away_team_average_win_odds_pre_game'}).drop('team', axis=1)
+    df = df.merge(odds_data[['date', 'season', 'league', 'team', 'average_draw_odds_per_game_pre_game']], left_on=['date', 'season', 'league', 'away_team_name'], right_on=['date', 'season', 'league', 'team'], how='left').rename(columns={'average_draw_odds_per_game_pre_game': 'away_team_average_draw_odds_pre_game'}).drop('team', axis=1)
 
     return df
-    
+   
+#this needs to be fixed to run the wrapper in terminal   
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Prepare data for football analytics.')
     parser.add_argument('data_filepath', type=str, help='Path to the CSV file containing the data.')
