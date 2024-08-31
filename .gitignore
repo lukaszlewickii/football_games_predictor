@@ -2,3 +2,4 @@ data/
 modelling_data/
 finetuning_data/
 catboost_info/
+stat_tests_results_sample.csv
